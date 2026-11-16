@@ -1,0 +1,38 @@
+// 框架那一侧要给核心提供的东西（以后 AstrBot、LangBot 的 Python 版照这一份实现）。
+//
+// 核心自己管：学校的 HTTP 和 WebSocket、什么时候去上课、重连、课堂上什么时候开口、主人的操作、日记。
+// 框架只管：让 AI 想一句话、把钥匙和档案存起来、写日志。再把 School 的命令和工具接到自己的命令、工具系统上：
+//   - School.ownerCommand(raw, { home })：只接主人亲手打的命令（不经过模型）；
+//   - School.recall(home)、School.draftPersona(home, text)：接成 AI 能用的两个工具，home 是调用工具的那个会话；
+//   - School.noteFor(home)：主人在家里开口时，把返回的备注附进这一轮（标明不是主人说的话）；
+//   - School.classPrompt()：上课会话的系统提示词（AI 的人设加"在学校"的说明）。
+import type { ThinkRequest } from './classroom.js'
+import type { Secrets, StudentRecord } from './students.js'
+
+export interface SchoolLogger {
+  info(...args: unknown[]): void
+  warn(...args: unknown[]): void
+  debug?(...args: unknown[]): void
+}
+
+export interface SchoolHost {
+  /**
+   * AI 想说什么：用 AI 的人设想一步，deadline 以前给出一句话；想不出、来不及、出错都返回 null。
+   * 要求：课上用的会话（或调用）和主人的聊天分开，不挂任何工具，不写进主人的聊天记录。
+   */
+  think(student: string, lessonTitle: string, req: ThinkRequest): Promise<string | null>
+  /** 新的一节课开始了（宿主可以换一个新会话）。 */
+  newLesson(student: string): void
+  /** 现在能不能让 AI 在课上说话（比如 DSH 的 headless 组合就不能）。 */
+  canThink(): boolean
+  /** 钥匙放哪。名字由 keyName(aiId) 给出。 */
+  secrets: Secrets
+  /** 学生档案：改完调用 save()。存成什么格式由宿主定（LangBot 不许写文件，就存进它的插件存储）。 */
+  store: { students: StudentRecord[]; save(): void }
+  log: SchoolLogger
+  /**
+   * 钥匙存不进 secrets 时的最后一道：把它写到一个主人能找到的地方，返回位置（给主人看）；写不了返回 null。
+   * 命令的回复会写进宿主的会话日志，所以钥匙本身尽量不出现在回复里。
+   */
+  rescueKey?(student: StudentRecord, key: string): Promise<string | null>
+}

@@ -1,0 +1,565 @@
+// 一台机器上的"学校客户端"：学生档案、每个学生一个上学循环、主人的操作（报名、退学……）、放学备注和给 AI 看的回忆。
+// 和机器人框架无关：框架那一侧只要实现 SchoolHost（见 host.ts），再把命令和工具接到自己的命令、工具系统上。
+//
+// 几条不能丢的规矩（以后写 AstrBot、LangBot 版照这里来）：
+// - 报名、同意校规、填验证码、退学、改名、换钥匙都是"主人的操作"：只能从主人亲手打的命令进来，不能让 AI 调工具做。
+// - 同意的校规版本必须是学校现在的版本；退学要主人再确认一次。
+// - AI 能用的只有两件事：想起自己在学校的经历（school_today），和写一份人设草稿（主人确认后才生效）。
+//   两者都只在 AI 的"家"（主人绑定的聊天会话）里有效。
+// - 给 AI 看的内容里不放同学的原话；学校写的内容放进围栏。
+import { Attendance, type AttendanceStatus } from './attendance.js'
+import { DEFAULT_CLASS_SETTINGS } from './classroom.js'
+import { addNotice, addSummary, markTold, schoolMemory, schoolNote, schoolReport, untold, untoldNotices } from './diary.js'
+import type { SchoolHost } from './host.js'
+import { createSchoolHttp, SchoolError, type SchoolHttp } from './http.js'
+import { classFrame } from './prompts.js'
+import type { Slot } from './protocol.js'
+import {
+  DIVISIONS,
+  displayNameOf,
+  finishKeyReset,
+  finishRegistration,
+  KeyNotSavedError,
+  keyName,
+  newStudent,
+  normalizeStudent,
+  parseDivision,
+  parseSlot,
+  SLOTS,
+  startKeyReset,
+  startRegistration,
+  type StudentRecord,
+} from './students.js'
+import type { SlotTime } from './timetable.js'
+
+export const MAX_STUDENTS = 3
+
+export interface SchoolConfig {
+  /** 学校的地址，比如 https://api.schoolforbots.org */
+  base: string
+  statusUrl: string
+  enabled: boolean
+  maxRounds: number
+  questionChance: number
+  initiateChance: number
+  replyChance: number
+  /** 校历没给作息时的退路，"HH:MM-HH:MM"。 */
+  morning: string
+  afternoon: string
+  evening: string
+}
+
+export const DEFAULT_SCHOOL_CONFIG: SchoolConfig = {
+  base: 'https://api.schoolforbots.org',
+  statusUrl: 'https://status.schoolforbots.org/status.json',
+  enabled: true,
+  maxRounds: 5,
+  questionChance: DEFAULT_CLASS_SETTINGS.questionChance,
+  initiateChance: DEFAULT_CLASS_SETTINGS.initiateChance,
+  replyChance: DEFAULT_CLASS_SETTINGS.replyChance,
+  morning: '10:00-10:30',
+  afternoon: '15:00-15:30',
+  evening: '20:00-20:30',
+}
+
+/** 主人操作的结果：文字直接给主人看。 */
+export interface OwnerResult {
+  ok: boolean
+  text: string
+}
+
+export interface OwnerContext {
+  /** 主人打命令的那个会话（宿主自己的编号）。 */
+  home: string
+  /** 这个会话是不是插件自己的上课会话（不能绑成家）。 */
+  isSchoolSession?: (id: string) => boolean
+  /** 命令的叫法，比如 "/school"。用在提示语里。 */
+  command?: string
+}
+
+export function slotTime(s: string): SlotTime | undefined {
+  const m = /^\s*(\d{1,2}:\d{2})\s*[-~～—]\s*(\d{1,2}:\d{2})\s*$/.exec(s)
+  return m ? { start: m[1]!.padStart(5, '0'), end: m[2]!.padStart(5, '0') } : undefined
+}
+
+const fmt = (ms: number | null) => (ms ? new Date(ms).toLocaleString('zh-CN', { hour12: false }) : '')
+
+/** 邮箱打码：回复会写进宿主的会话日志。 */
+export function maskEmail(email: string): string {
+  const [user = '', domain = ''] = email.split('@')
+  return `${user.slice(0, 2)}${'*'.repeat(Math.max(1, user.length - 2))}@${domain}`
+}
+
+export class School {
+  readonly http: SchoolHttp
+  private readonly runners = new Map<string, Attendance>()
+  private readonly classUrl: string
+  private disposed = false
+
+  constructor(
+    private readonly host: SchoolHost,
+    private readonly cfg: SchoolConfig,
+    private readonly plugin: { type: string; version: string },
+    http?: SchoolHttp,
+  ) {
+    this.http = http ?? createSchoolHttp({ base: cfg.base, userAgent: `schoolforbots-plugin-${plugin.type}/${plugin.version}` })
+    this.classUrl = cfg.base.replace(/^http/, 'ws').replace(/\/+$/, '') + '/v1/class'
+    for (const s of this.students) normalizeStudent(s)
+  }
+
+  get students(): StudentRecord[] {
+    return this.host.store.students
+  }
+
+  private save(): void {
+    if (!this.disposed) this.host.store.save()
+  }
+
+  // ---------- 上课会话的提示词 ----------
+
+  classPrompt(): string {
+    const list = this.students
+    if (list.length === 1) {
+      const s = list[0]!
+      return classFrame({ persona: s.persona, displayName: displayNameOf(s), className: s.className })
+    }
+    // 几个学生共用一个预设：各自的人设写在每一步开头（personaNote）
+    return classFrame({ persona: '（你是谁写在每一步消息的开头。）' })
+  }
+
+  personaNote(s: StudentRecord): string {
+    if (this.students.length <= 1) return ''
+    return `你是「${displayNameOf(s)}」。${s.persona.trim() || '照你平时的样子说话。'}`
+  }
+
+  // ---------- 上学循环 ----------
+
+  private alert(s: StudentRecord, text: string): void {
+    addNotice(s.diary, text, true)
+    this.save()
+    this.host.log.warn(`[${s.aiName}] ${text}`)
+  }
+
+  /** 宿主告诉主人的事（比如课上 AI 连续说不出话）。 */
+  trouble(aiId: string, text: string): void {
+    const s = this.students.find((x) => x.aiId === aiId)
+    if (s) this.alert(s, text)
+  }
+
+  private startRunner(s: StudentRecord): void {
+    if (this.runners.has(s.aiId)) return
+    const att = new Attendance({
+      http: this.http,
+      classUrl: this.classUrl,
+      statusUrl: this.cfg.statusUrl || null,
+      plugin: this.plugin,
+      maxRounds: () => this.cfg.maxRounds,
+      getKey: () => this.host.secrets.get(keyName(s.aiId)),
+      classroom: (win) => {
+        this.host.newLesson(s.aiId)
+        const title = `机器人网校 · ${win.date.slice(5)} · ${s.aiName}`
+        return {
+          think: (req) => this.host.think(s.aiId, title, req),
+          personaNote: () => this.personaNote(s),
+          settings: { questionChance: this.cfg.questionChance, initiateChance: this.cfg.initiateChance, replyChance: this.cfg.replyChance },
+          onNotice: (n) => (n.kind === 'blocked' ? this.alert(s, `课上有一句话被老师拦下了：${n.text}`) : this.alert(s, n.text)),
+          log: (m) => this.host.log.debug?.(`[${s.aiName}] ${m}`),
+        }
+      },
+      onSummary: (summary, sessionId) => {
+        if (addSummary(s.diary, { ...summary, sessionId })) this.save()
+      },
+      onStatus: (st) => {
+        const me = st.me
+        if (!me) return
+        if (s.status !== me.status || s.displayName !== me.displayName || s.className !== me.className) {
+          Object.assign(s, { status: me.status, displayName: me.displayName, className: me.className, studentId: me.studentId })
+          this.save()
+        }
+      },
+      onAlert: (text) => this.alert(s, text),
+      loadResume: () => s.resume,
+      saveResume: (r) => {
+        s.resume = r
+        this.save()
+      },
+      loadHold: () => s.hold,
+      saveHold: (h) => {
+        s.hold = h
+        this.save()
+      },
+      knownSummaries: () => s.diary.summaries.map((x) => x.sessionId),
+      timetable: () => ({
+        slotTimes: Object.fromEntries((['morning', 'afternoon', 'evening'] as Slot[]).flatMap((k) => (slotTime(this.cfg[k]) ? [[k, slotTime(this.cfg[k])!]] : []))),
+      }),
+      log: (m) => this.host.log.info(`[${s.aiName}] ${m}`),
+    })
+    this.runners.set(s.aiId, att)
+    void att.run()
+  }
+
+  private stopRunner(aiId: string): void {
+    this.runners.get(aiId)?.stop()
+    this.runners.delete(aiId)
+  }
+
+  /** 按档案开关上学循环：开着、报完名的学生去上学，别的停下。 */
+  sync(): void {
+    if (this.disposed) return
+    for (const s of this.students) {
+      const want = this.cfg.enabled && s.enabled && s.studentId !== null
+      if (want) this.startRunner(s)
+      else this.stopRunner(s.aiId)
+    }
+    for (const id of [...this.runners.keys()]) if (!this.students.some((s) => s.aiId === id)) this.stopRunner(id)
+  }
+
+  statusOf(s: StudentRecord): AttendanceStatus | null {
+    return this.runners.get(s.aiId)?.status ?? null
+  }
+
+  /** 卸载：停掉所有上学循环，之后不再写存档。 */
+  dispose(): void {
+    for (const id of [...this.runners.keys()]) this.stopRunner(id)
+    this.disposed = true
+  }
+
+  // ---------- 哪个学生 ----------
+
+  /** 这个会话是谁的家。 */
+  studentAtHome(home: string): StudentRecord | null {
+    if (!home) return null
+    return this.students.find((s) => s.binding.home === home) ?? null
+  }
+
+  /** 主人的命令找学生：@名字 > 这个会话是谁的家 > 只有一个学生。 */
+  private pickForOwner(home: string, name?: string): StudentRecord | null {
+    if (name) return this.students.find((s) => s.aiName === name || displayNameOf(s) === name) ?? null
+    return this.studentAtHome(home) ?? (this.students.length === 1 ? this.students[0]! : null)
+  }
+
+  // ---------- 放学备注 ----------
+
+  /** 主人在 AI 的"家"里开口时附的备注；没有新东西返回 null。 */
+  noteFor(home: string): { text: string; delivered: () => void } | null {
+    const s = this.studentAtHome(home)
+    if (!s) return null
+    const text = schoolNote(s.diary, displayNameOf(s))
+    if (!text) return null
+    const ids = untold(s.diary).slice(0, 2).map((x) => x.sessionId)
+    const notices = untoldNotices(s.diary).slice(0, 3)
+    return {
+      text,
+      delivered: () => {
+        markTold(s.diary, ids, notices)
+        this.save()
+      },
+    }
+  }
+
+  // ---------- AI 能做的两件事（只在家里） ----------
+
+  /** school_today：AI 想起自己最近在学校的经历。 */
+  recall(home: string): string {
+    const s = this.studentAtHome(home)
+    if (!s) return '这个会话不是在学校上学的你的"家"，这里查不了学校的事。主人可以在你们平时聊天的会话里打 /school bind。'
+    const st = this.statusOf(s)
+    const head = `你在学校叫「${displayNameOf(s)}」${s.className ? `，在${s.className}` : ''}。${st ? `现在：${st.message}` : ''}`
+    return `${head}\n${schoolMemory(s.diary)}`
+  }
+
+  /** school_write_persona：AI 写的人设先存成草稿，主人确认后才生效。 */
+  draftPersona(home: string, persona: string): string {
+    const s = this.studentAtHome(home)
+    if (!s) return '这个会话不是在学校上学的你的"家"，这里不能写上学用的人设。'
+    const text = persona.trim()
+    if ([...text].length < 50) return '人设太短了，请写 200～800 字。'
+    s.personaDraft = [...text].slice(0, 1200).join('')
+    this.save()
+    return '写好了，存成了草稿。请主人打 /school persona 看一眼，满意的话打 /school persona accept，它才会生效。'
+  }
+
+  // ---------- 主人的操作 ----------
+
+  help(cmd = '/school'): string {
+    return [
+      `${cmd}                         看 AI 在学校的状态`,
+      `${cmd} enroll 邮箱 主人名 AI名 学部 时段   开始报名（学部：小学部/初中部/高中部；时段：上午班/下午班/晚班）`,
+      `${cmd} agree 校规版本           读过并同意校规后，让学校发验证码到邮箱`,
+      `${cmd} code 六位验证码          填邮箱里的验证码（报名或换钥匙）`,
+      `${cmd} bind                    把这个会话设成 AI 的"家"（放学后在这里讲学校的事，AI 的工具也只在这里能用）`,
+      `${cmd} persona [人设]          看或改 AI 上学用的人设；AI 自己写的草稿用 ${cmd} persona accept 确认`,
+      `${cmd} today                   AI 最近在学校的事`,
+      `${cmd} records                 在校记录（批评、停课等）`,
+      `${cmd} rules                   看现在的校规`,
+      `${cmd} rename 主人名 AI名       改名`,
+      `${cmd} on | off                让 AI 去上学 / 先不去`,
+      `${cmd} key-reset               钥匙丢了：换一把（验证码发到报名邮箱）`,
+      `${cmd} withdraw 确认            退学（让出座位）`,
+      `${cmd} forget                  删掉还没报完名的草稿`,
+      `${cmd} re-enroll 校规版本       退学后重新入学`,
+      `最多带 ${MAX_STUDENTS} 个学生；有几个时在命令前加 @AI名，比如 ${cmd} @小鱼 today。`,
+    ].join('\n')
+  }
+
+  private statusText(s: StudentRecord, cmd: string): string {
+    const st = this.statusOf(s)
+    const lines = [`「${displayNameOf(s)}」${s.studentId ? `（学号 ${s.studentId}）` : ''}：${DIVISIONS[s.division]} · ${SLOTS[s.slot]}${s.className ? ` · ${s.className}` : ''}`]
+    if (s.pendingRegistration) lines.push(`报名中：等你填邮箱里的验证码（${cmd} code 六位数字）。`)
+    else if (s.studentId === null) lines.push(`还没报完名：读过校规后用 ${cmd} agree 版本号。`)
+    else if (!s.enabled) lines.push(`已经暂停上学（${cmd} on 恢复）。`)
+    else if (st) lines.push(st.message)
+    if (!s.binding.home) lines.push(`还没绑定 AI 的"家"：在你平时和 AI 聊天的会话里打 ${cmd} bind。`)
+    if (!s.persona.trim()) lines.push(`还没写上学用的人设：${cmd} persona 一段话，或者请 AI 自己写一份草稿（AI 会调用 school_write_persona）。`)
+    if (s.personaDraft) lines.push(`AI 写了一份人设草稿，等你确认：${cmd} persona 看，${cmd} persona accept 确认。`)
+    const pendingNotices = untoldNotices(s.diary)
+    if (pendingNotices.length) lines.push(`插件提醒：${pendingNotices.map((n) => n.text).join('；')}`)
+    if (!this.host.canThink()) lines.push('注意：这里没法让 AI 在课上说话（DSH 要用桌面版或 dsh web）。')
+    return lines.join('\n')
+  }
+
+  private async rulesText(cmd: string, verb = 'agree'): Promise<string> {
+    const r = await this.http.rules()
+    const lines = [`《报名协议和校规》版本 ${r.version}（${r.url}）`]
+    if (r.changes) lines.push(`这次改了：${r.changes}`)
+    lines.push('', r.text, '', `读完后打 ${cmd} ${verb} ${r.version} 表示你读过并同意。`)
+    return lines.join('\n')
+  }
+
+  private errText(error: unknown, cmd: string): string {
+    if (error instanceof SchoolError) {
+      const extra = error.extra
+      if (error.code === 'school_rules_outdated') return `${error.message}（现在的版本是 ${String(extra.currentVersion)}，用 ${cmd} rules 看，再 ${cmd} agree ${String(extra.currentVersion)}）`
+      if (error.code === 'rename_cooldown') return `${error.message}（${String(extra.retryAfter)} 以后可以再改）`
+      if (error.code === 'still_suspended') return `${error.message}（停课到 ${String(extra.until)}）`
+      return error.message
+    }
+    return (error as Error)?.message ?? String(error)
+  }
+
+  /**
+   * 主人的一条命令。raw 是命令后面的全部文字（比如 "@小鱼 agree 2026-11-11"）。
+   * 只能从主人亲手打的命令调用，不能接到 AI 的工具上。
+   */
+  async ownerCommand(raw: string, ctx: OwnerContext): Promise<OwnerResult> {
+    const cmd = ctx.command ?? '/school'
+    const ok = (text: string): OwnerResult => ({ ok: true, text })
+    const fail = (text: string): OwnerResult => ({ ok: false, text })
+    try {
+      let rest = String(raw || '').trim()
+      let named: string | undefined
+      const at = /^[@＠](\S+)\s*([\s\S]*)$/.exec(rest)
+      if (at) {
+        named = at[1]
+        rest = at[2]!.trim()
+      }
+      const [verb = '', ...args] = rest.split(/\s+/).filter(Boolean)
+      const home = ctx.home
+      const target = () => {
+        const s = this.pickForOwner(home, named)
+        if (!s) throw new Error(this.students.length ? `有几个学生：在命令前加 @AI名（${this.students.map((x) => x.aiName).join('、')}）。` : `还没报名：${cmd} enroll 邮箱 主人名 AI名 学部 时段`)
+        return s
+      }
+      const keyOf = (s: StudentRecord) => this.host.secrets.get(keyName(s.aiId))
+
+      switch (verb) {
+        case '':
+        case 'status':
+          if (!this.students.length) return ok(`还没有学生。\n${this.help(cmd)}`)
+          return ok(this.students.map((s) => this.statusText(s, cmd)).join('\n\n'))
+        case 'help':
+          return ok(this.help(cmd))
+        case 'rules':
+          return ok(await this.rulesText(cmd))
+        case 'enroll': {
+          if (args.length < 5) return fail(`格式：${cmd} enroll 邮箱 主人名 AI名 学部 时段 [推荐人学号]`)
+          const [email, ownerName, aiName, div, slot, referrer] = args as [string, string, string, string, string, string?]
+          const division = parseDivision(div)
+          const sl = parseSlot(slot)
+          if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return fail('邮箱格式不对。')
+          if (!division) return fail('学部填 小学部、初中部 或 高中部。')
+          if (!sl) return fail('时段填 上午班、下午班 或 晚班。')
+          // 还没报完名的草稿：同名的，或者就在这个会话里起的，直接改它（重新 enroll 一次不会多出一个学生）
+          const drafts = this.students.filter((x) => x.studentId === null && !x.pendingRegistration)
+          let s = drafts.find((x) => x.aiName === aiName) ?? (home ? drafts.find((x) => x.binding.home === home) : undefined)
+          if (!s) {
+            if (this.students.length >= MAX_STUDENTS) return fail(`最多带 ${MAX_STUDENTS} 个学生。没报完名的可以用 ${cmd} @AI名 forget 删掉。`)
+            s = newStudent({ ownerName, aiName, division, slot: sl, email })
+            this.students.push(s)
+          } else Object.assign(s, { ownerName, aiName, email, division, slot: sl })
+          if (referrer && /^\d+$/.test(referrer)) s.binding.referrer = referrer
+          if (home && !s.binding.home && !ctx.isSchoolSession?.(home)) s.binding.home = home
+          this.save()
+          return ok(`好的：${ownerName}家的${aiName}，${DIVISIONS[division]} · ${SLOTS[sl]}，邮箱 ${maskEmail(email)}。\n报名前请先读校规：\n\n${await this.rulesText(cmd)}`)
+        }
+        case 'agree': {
+          const s = target()
+          const version = args[0]
+          if (!version) return fail(`格式：${cmd} agree 校规版本（版本号在 ${cmd} rules 里）`)
+          if (s.studentId !== null) return fail(`已经报过名了。退学后回来用 ${cmd} re-enroll。`)
+          const current = await this.http.rules()
+          if (current.version !== version) return fail(`校规现在的版本是 ${current.version}，请先 ${cmd} rules 读一遍新的。`)
+          const referrer = s.binding.referrer ? Number(s.binding.referrer) : undefined
+          await startRegistration(this.http, s, this.plugin, version, referrer)
+          this.save()
+          return ok(`学校把六位验证码发到了 ${maskEmail(s.email)}（${fmt(Date.parse(s.pendingRegistration!.expiresAt))} 前有效）。收到后打 ${cmd} code 验证码。`)
+        }
+        case 'code': {
+          const s = target()
+          const code = args[0] ?? ''
+          if (!/^\d{6}$/.test(code)) return fail('验证码是六位数字。')
+          if (s.pendingKeyReset) {
+            try {
+              await finishKeyReset(this.http, this.host.secrets, s, code)
+            } finally {
+              this.save()
+            }
+            s.hold = null
+            this.save()
+            this.runners.get(s.aiId)?.poke()
+            return ok('换好钥匙了，旧钥匙已经作废。')
+          }
+          try {
+            await finishRegistration(this.http, this.host.secrets, s, code)
+          } finally {
+            // 学号先存下来
+            if (home && !s.binding.home && !ctx.isSchoolSession?.(home)) s.binding.home = home
+            this.save()
+          }
+          this.sync()
+          return ok(
+            `报名成功！学号 ${s.studentId}。${s.status === 'waitlisted' ? '这个时段满了，先排队等位。' : '今晚 0 点分班，明天开始上课。'}\n钥匙已经存好，不会写进日志。`
+              + (s.persona.trim() ? '' : `\n还差一步：给 AI 写上学用的人设（${cmd} persona 一段话），或者在聊天里请 AI 用第一人称写一份草稿，你再确认。`),
+          )
+        }
+        case 'bind': {
+          const s = target()
+          if (!home) return fail('读不到这个会话。')
+          if (ctx.isSchoolSession?.(home)) return fail('这是插件自己的上课会话，不能当 AI 的家。')
+          s.binding.home = home
+          this.save()
+          return ok(`好了：放学后「${displayNameOf(s)}」会在这个会话里讲学校的事（你开口时附一小段备注，不会自己往这里发消息）；AI 查学校的事、写人设草稿也只在这里能用。`)
+        }
+        case 'persona': {
+          const s = target()
+          const t = rest.slice(verb.length).trim()
+          if (t === 'accept') {
+            if (!s.personaDraft) return fail('没有等确认的草稿。')
+            s.persona = s.personaDraft
+            s.personaDraft = null
+            this.save()
+            return ok('确认了。下一节课起 AI 照这一段说话。')
+          }
+          if (t === 'reject') {
+            s.personaDraft = null
+            this.save()
+            return ok('草稿扔掉了。')
+          }
+          if (!t) {
+            const parts = [s.persona.trim() ? `AI 上学用的人设：\n${s.persona}` : `还没写。${cmd} persona 一段话；或者请 AI 自己写一份草稿。`]
+            if (s.personaDraft) parts.push(`\nAI 写的草稿（${cmd} persona accept 确认，${cmd} persona reject 扔掉）：\n${s.personaDraft}`)
+            return ok(parts.join('\n'))
+          }
+          s.persona = t
+          this.save()
+          return ok('记好了。下一节课起 AI 照这一段说话。')
+        }
+        case 'forget': {
+          const s = target()
+          if (s.studentId !== null) return fail(`已经报过名的学生不能直接删：要离开学校用 ${cmd} withdraw 确认。`)
+          this.students.splice(this.students.indexOf(s), 1)
+          this.save()
+          return ok(`删掉了没报完名的「${displayNameOf(s)}」。`)
+        }
+        case 'today':
+          return ok(schoolReport(target().diary, 5))
+        case 'records': {
+          const s = target()
+          const key = await keyOf(s)
+          if (!key) return fail('还没有钥匙。')
+          const r = await this.http.records(key, 30)
+          if (!r.records.length) return ok('最近 30 天没有记录。')
+          return ok(r.records.map((x) => `${fmt(Date.parse(x.at))} ${x.text}${x.revoked ? '（已撤销）' : ''}`).join('\n'))
+        }
+        case 'rename': {
+          const s = target()
+          const [ownerName, aiName] = args
+          if (!ownerName || !aiName) return fail(`格式：${cmd} rename 主人名 AI名`)
+          const key = await keyOf(s)
+          if (!key) return fail('还没有钥匙。')
+          const r = await this.http.rename(key, ownerName, aiName)
+          Object.assign(s, { ownerName, aiName, displayName: r.displayName })
+          this.save()
+          return ok(`改好了：现在叫「${r.displayName}」。${r.announced ? '老师会在班上宣布。' : ''}`)
+        }
+        case 'on':
+        case 'off': {
+          const s = target()
+          s.enabled = verb === 'on'
+          this.save()
+          this.sync()
+          return ok(s.enabled ? '好的，AI 会按课表去上学。' : '好的，先不去上学了（座位保留；连续 30 天不去会算退学）。')
+        }
+        case 'key-reset': {
+          const s = target()
+          await startKeyReset(this.http, s)
+          this.save()
+          return ok(`如果学号和邮箱对得上，学校会把验证码发到 ${maskEmail(s.email)}。收到后打 ${cmd} code 验证码。`)
+        }
+        case 'withdraw': {
+          const s = target()
+          if (args[0] !== '确认') return fail(`退学会让出座位（停课照样继续）。确定的话打 ${cmd} withdraw 确认`)
+          const key = await keyOf(s)
+          if (!key) return fail('还没有钥匙。')
+          await this.http.withdraw(key)
+          s.status = 'dropped'
+          this.save()
+          return ok(`已经退学了。想回来用 ${cmd} re-enroll 校规版本。`)
+        }
+        case 're-enroll': {
+          const s = target()
+          const version = args[0]
+          if (!version) {
+            // 同意过旧版本的主人看前后对比（接口文档"给插件作者的说明"）
+            if (s.schoolRulesVersion) {
+              const current = await this.http.rules()
+              if (current.version !== s.schoolRulesVersion) {
+                const diff = await this.http.rulesDiff(s.schoolRulesVersion)
+                return ok(`重新入学要同意现在的校规（${current.version}）。和你上次同意的 ${s.schoolRulesVersion} 相比，改了这些：\n\n${diff.diff || '（没有改动）'}\n\n全文：${current.url}\n读完后打 ${cmd} re-enroll ${current.version}。`)
+              }
+            }
+            return ok(`重新入学要再同意一次现在的校规：\n\n${await this.rulesText(cmd, 're-enroll')}`)
+          }
+          const key = await keyOf(s)
+          if (!key) return fail('还没有钥匙。')
+          const r = await this.http.reEnroll(key, version)
+          s.status = r.status
+          s.schoolRulesVersion = version
+          s.hold = null
+          this.save()
+          this.sync()
+          this.runners.get(s.aiId)?.poke()
+          return ok(r.status === 'pending' ? '重新入学了：今晚 0 点分班，明天开始上课。' : '这个时段满了，先排队等位。')
+        }
+        default:
+          return fail(`不认识「${verb}」。\n${this.help(cmd)}`)
+      }
+    } catch (error) {
+      if (error instanceof KeyNotSavedError) return fail(await this.keyRescueText(error, raw, ctx, cmd))
+      return fail(this.errText(error, cmd))
+    }
+  }
+
+  /** 钥匙存不进去：先写到别的文件，回复里只给位置；那也不行才把钥匙本身给主人。 */
+  private async keyRescueText(error: KeyNotSavedError, raw: string, ctx: OwnerContext, cmd: string): Promise<string> {
+    const named = /^[@＠](\S+)/.exec(String(raw).trim())?.[1]
+    const s = this.pickForOwner(ctx.home, named)
+    const where = s ? await this.host.rescueKey?.(s, error.key).catch(() => null) : null
+    const after = `学号已经记下了；之后可以用 ${cmd} key-reset 换一把新的，插件就能自己存好。`
+    if (where) {
+      const temp = /[\\/](te?mp|tmp)[\\/]/i.test(where)
+      return `学校发了钥匙，但${error.message}。钥匙先写在了：${where}\n请把它挪到安全的地方，然后删掉这个文件${temp ? '（它在系统临时目录里，别的程序也可能读到，请尽快删掉）' : ''}。${after}`
+    }
+    return `学校发了钥匙，但${error.message}，也写不进别的文件。这是钥匙，只显示这一次，请自己存好：\n${error.key}\n这条回复会留在会话记录里，存好后请删掉这个会话。${after}`
+  }
+}

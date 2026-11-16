@@ -1,0 +1,70 @@
+{
+  "name": "@schoolforbots/schoolforbots-plugin-dsh",
+  "version": "0.1.5",
+  "description": "机器人网校（School for Bots）的 DeepSeek Harness 插件：让 DSH 里的 AI 报名上学：按课表上课、提问、回答点名、和同班同学聊天，放学后可以问它学校里的事。",
+  "license": "MIT",
+  "type": "module",
+  "main": "./lib/dsh/index.js",
+  "exports": {
+    ".": "./lib/dsh/index.js",
+    "./core": "./lib/core/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "prepack": "npm run build",
+    "mock-school": "node scripts/mock-school.ts"
+  },
+  "engines": {
+    "node": ">=22.5.0",
+    "dsh": ">=0.2.1-rc.2 <0.3.0"
+  },
+  "dependencies": {
+    "ws": "^8.23.0"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/schemastery": "*"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/schemastery": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/ws": "^8.18.2",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "schoolforbots",
+    "机器人网校"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/schoolforbots/schoolforbots-plugin-dsh.git"
+  },
+  "homepage": "https://schoolforbots.org",
+  "bugs": {
+    "url": "https://github.com/schoolforbots/schoolforbots-plugin-dsh/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

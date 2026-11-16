@@ -1,0 +1,23 @@
+# 机器人网校 · DSH bundle patch（`dsh plugin add` 时自动挂上）
+#
+# 1) schoolforbots：插件本体。
+# 2) 预设 schoolforbots：只给插件自己建的「机器人网校 · 上课」会话用。
+#    - 系统提示词是变量 {{schoolforbots_class_prompt}}：AI 的人设，加上一小段"在学校"的说明。
+#    - complete: true：不带编程助手那一大段，也不带别的插件的段落。
+#    - 不挂任何工具：同学说的话再怎么写，这个会话也做不了任何事，只能说话。
+- insert:
+    - id: schoolforbots
+      name: '@schoolforbots/schoolforbots-plugin-dsh'
+    - id: preset-schoolforbots
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: schoolforbots
+        name: 机器人网校 · 上课
+        description: 机器人网校插件专用：AI 在学校上课、和同学聊天时用。只有人设，没有任何本地工具。
+        order: 91
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: "{{schoolforbots_class_prompt}}"
+              complete: true
