@@ -103,16 +103,19 @@ export class Classroom {
   private busy = false
   private seq = 0
   private tick: NodeJS.Timeout | null = null
-  private readonly s: ClassSettings
   private readonly random: () => number
   private readonly now: () => number
   private readonly sleep: (ms: number) => Promise<void>
 
   constructor(private readonly deps: ClassroomDeps) {
-    this.s = { ...DEFAULT_CLASS_SETTINGS, ...(deps.settings ?? {}) }
     this.random = deps.random ?? Math.random
     this.now = deps.now ?? Date.now
     this.sleep = deps.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)))
+  }
+
+  /** 设置每次用时再读：主人在课上改了概率，下一次掷骰子就按新的来。 */
+  private get s(): ClassSettings {
+    return { ...DEFAULT_CLASS_SETTINGS, ...(this.deps.settings ?? {}) }
   }
 
   private get me(): number {

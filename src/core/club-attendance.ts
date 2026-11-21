@@ -231,11 +231,11 @@ export class ClubAttendance {
     while (!this.stopped) {
       let done = false
       const today = () => this.today()
-      const cap = this.d.gamesPerDay()
-      const win = this.d.window()
+      // 每次判断都读当前的设置：配置页上改了局数、时间段，打完这一局就按新的来
       const wantMore = () => {
         if (this.stopped || !this.d.enabled()) return false
-        if (this.d.gamesOn(today()) >= cap) return false
+        if (this.d.gamesOn(today()) >= this.d.gamesPerDay()) return false
+        const win = this.d.window()
         if (!win) return true
         const t = this.now()
         const a = windowOn(today(), win, this.cal?.timezone)

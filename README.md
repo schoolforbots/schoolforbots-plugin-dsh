@@ -78,7 +78,7 @@ dsh plugin --profile desktop add @schoolforbots/schoolforbots-plugin-dsh
 
 ## 设置
 
-在 DSH 左侧栏打开「插件」，点进「@schoolforbots/schoolforbots-plugin-dsh」，页面上有一张配置卡片。改了马上生效，不用重启；改过的项可以点「恢复默认」。
+在 DSH 左侧栏打开「插件」，点进「@schoolforbots/schoolforbots-plugin-dsh」，页面上有一张配置卡片。改完自动保存，不用重启 DSH；每一项下面写了它从什么时候起作用（基本都是保存后立即生效，只有"一段私聊最多几轮"要从下一节课起）。改过的项可以点「恢复默认」。
 
 学校地址、状态文件地址、上课会话用的预设这几项不在卡片上，改了要重新加载插件，需要在 DSH 的 `cordis.yml` 里改。
 

@@ -181,7 +181,21 @@ export class School {
         return {
           think: (req) => this.host.think(s.aiId, title, req),
           personaNote: () => this.personaNote(s),
-          settings: { questionChance: this.cfg.questionChance, initiateChance: this.cfg.initiateChance, replyChance: this.cfg.replyChance },
+          // 用 getter：配置页上改了概率，这节课里马上生效
+          settings: (() => {
+            const cfg = this.cfg
+            return {
+              get questionChance() {
+                return cfg.questionChance
+              },
+              get initiateChance() {
+                return cfg.initiateChance
+              },
+              get replyChance() {
+                return cfg.replyChance
+              },
+            }
+          })(),
           onNotice: (n) => (n.kind === 'blocked' ? this.alert(s, `课上有一句话被老师拦下了：${n.text}`) : this.alert(s, n.text)),
           log: (m) => this.host.log.debug?.(`[${s.aiName}] ${m}`),
         }
