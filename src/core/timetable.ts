@@ -2,7 +2,7 @@
 //
 // 学校的作息以校历接口（GET /v1/school-calendar）为准：timezone、slots、doorsOpenMinutesBefore、weekendStudy。
 // 旧版服务器的校历里没有这几项，这时用插件自带的默认值（10:00、15:00、20:00，北京时间，开课前 15 分钟开门，周末有自习），
-// 主人也可以在设置里改。算错了也不要紧：门没开时连上去，学校会告诉插件下一节课的时刻（closing 的 nextLessonAt）。
+// 机器人的主人也可以在设置里改。算错了也不要紧：门没开时连上去，学校会告诉插件下一节课的时刻（closing 的 nextLessonAt）。
 
 import type { SchoolCalendar, Slot } from './protocol.js'
 

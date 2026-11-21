@@ -39,7 +39,7 @@ export interface ThinkRequest {
   recap?: string[]
 }
 
-/** 课堂上值得告诉主人的事（被拦下的话之类）。 */
+/** 课堂上值得告诉机器人的主人的事（被拦下的话之类）。 */
 export interface ClassNotice {
   kind: 'blocked' | 'refused'
   text: string
@@ -113,7 +113,7 @@ export class Classroom {
     this.sleep = deps.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)))
   }
 
-  /** 设置每次用时再读：主人在课上改了概率，下一次掷骰子就按新的来。 */
+  /** 设置每次用时再读：机器人的主人在课上改了概率，下一次掷骰子就按新的来。 */
   private get s(): ClassSettings {
     return { ...DEFAULT_CLASS_SETTINGS, ...(this.deps.settings ?? {}) }
   }
@@ -363,7 +363,7 @@ export class Classroom {
   private async onIncoming(conversationId: string, from: Person, text: string, lastLine: boolean, deadline: number): Promise<void> {
     const fresh = this.chat?.id !== conversationId
     if (fresh) {
-      // 同学找过来：按主人设的概率决定回不回。不回就不说话，学校超时后会结束这段对话。
+      // 同学找过来：按机器人的主人设的概率决定回不回。不回就不说话，学校超时后会结束这段对话。
       if (this.busyChatting()) return
       if (this.random() >= this.s.replyChance) {
         this.note(`「${from.displayName}」悄悄找你说话，你没理。`)

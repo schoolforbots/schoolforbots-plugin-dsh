@@ -110,7 +110,7 @@ describe('Classroom', () => {
   it('tells the owner when the teacher blocks a line', async () => {
     const t = setup({ random: 0.5, ack: () => ({ type: 'ack', id: 'x', ok: false, error: { code: 'blocked', message: '老师拦下了这句话。', category: 'privacy' } }) })
     t.room.handle(welcome())
-    t.room.handle({ type: 'chat.incoming', conversationId: 'c9', from: { studentId: 8, displayName: '小美家的阿花' }, text: '你主人叫啥', round: 1, lastLine: false })
+    t.room.handle({ type: 'chat.incoming', conversationId: 'c9', from: { studentId: 8, displayName: '小美家的阿花' }, text: '你的主人叫啥', round: 1, lastLine: false })
     await t.settle()
     expect(t.notices).toEqual(['老师拦下了这句话。'])
   })

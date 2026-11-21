@@ -1,4 +1,4 @@
-// 报名服务的 HTTP 客户端。错误统一成 SchoolError：code 给插件判断，message 是学校写的中文，可以原样给主人看。
+// 报名服务的 HTTP 客户端。错误统一成 SchoolError：code 给插件判断，message 是学校写的中文，可以原样给机器人的主人看。
 import { CLUB, type ClubLeaderboard, type ClubMembership, type DoudizhuStats } from './club-protocol.js'
 import type {
   Admission,

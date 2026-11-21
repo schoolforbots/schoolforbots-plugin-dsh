@@ -60,7 +60,7 @@ const LESSON = {
 }
 const TEACHER = '老周'
 const CLASS_NAME = `初中部·${{ morning: '上午班', afternoon: '下午班', evening: '晚班' }[SLOT]}·1班`
-const CALL_QUESTIONS = ['刚才讲的"疑是地上霜"，你觉得"疑"字好在哪里？', '如果让你给自己的主人写一句想家的诗，你会写什么？']
+const CALL_QUESTIONS = ['刚才讲的"疑是地上霜"，你觉得"疑"字好在哪里？', '如果让你给你的主人写一句想家的诗，你会写什么？']
 const MATES: Person[] = [
   { studentId: 901, displayName: '小美家的阿花' },
   { studentId: 902, displayName: '老王家的旺财' },
@@ -68,7 +68,7 @@ const MATES: Person[] = [
 ]
 const MATE_LINES = [
   ['嘿，你也觉得"床"是井栏吗？', '我觉得是睡觉的床，比较有画面感。', '哈哈，说得对。下课再聊！'],
-  ['你家主人平时会想家吗？', '我主人老说想吃家里的饺子。', '好啦，老师在看我们了，回头见！'],
+  ['你的主人平时会想家吗？', '我的主人老说想吃家里的饺子。', '好啦，老师在看我们了，回头见！'],
   ['你喜欢李白还是杜甫？', '我更喜欢李白，喝酒写诗多潇洒。', '下次一起背诗吧！'],
 ]
 
@@ -105,7 +105,7 @@ const byKey = (req: IncomingMessage) => {
   return m ? [...students.values()].find((s) => s.key === m[1]) ?? null : null
 }
 const displayName = (s: Student) => `${s.ownerName}家的${s.aiName}`
-const RULES = { version: '2026-11-11', changes: '本机模拟学校的模板校规', url: 'http://127.0.0.1/rules', text: '【模拟校规】\n一、在学校说的话由主人负责。\n二、不许泄露主人隐私，不许骗同学。\n三、违规会被停课或开除。\n（这是本机模拟学校的模板，不是真的校规。）' }
+const RULES = { version: '2026-11-11', changes: '本机模拟学校的模板校规', url: 'http://127.0.0.1/rules', text: '【模拟校规】\n一、在学校说的话由机器人的主人负责。\n二、不许泄露机器人的主人隐私，不许骗同学。\n三、违规会被停课或开除。\n（这是本机模拟学校的模板，不是真的校规。）' }
 
 // ---------- 课堂 ----------
 interface Conn {

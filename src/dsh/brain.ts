@@ -2,10 +2,10 @@
 // 套随插件安装的 schoolforbots 预设（AI 的人设，没有工具），把课堂上的一步当一条消息交给 AI，等这一轮说完拿回 AI 的话。
 //
 // 几条约束：
-// - 课堂绝不进主人的聊天会话；会话建在插件自己的工作区，工作区名字写明"别在这里聊天"。
-// - 不预先建空会话（DSH 的"新会话"会接手它）；每一步发之前都检查会话是不是插件建的、主人有没有在里面说过话。
+// - 课堂绝不进机器人的主人的聊天会话；会话建在插件自己的工作区，工作区名字写明"别在这里聊天"。
+// - 不预先建空会话（DSH 的"新会话"会接手它）；每一步发之前都检查会话是不是插件建的、机器人的主人有没有在里面说过话。
 // - 上课会话里藏掉所有全局工具（allow: []）：同学的话再怎么写，这个会话也做不了任何事。藏不住就不用这个会话。
-// - 别的插件在 agent/pre-step 往上课会话里塞的消息（比如记忆插件塞主人的记忆）去掉，只留我们自己的和 runtime-context。
+// - 别的插件在 agent/pre-step 往上课会话里塞的消息（比如记忆插件塞机器人的主人的记忆）去掉，只留我们自己的和 runtime-context。
 //
 // 回合对账：真 DSH 的 user/message 事件的 data 就是消息本身，没有 turn。所以先等到我们这条消息的
 // user/message（armed），再认它后面的 turn/start、assistant/message、turn/end；超时取消以后这个会话不再用，
@@ -21,7 +21,7 @@ export const SOURCE_KIND = 'schoolforbots'
 const ROOM_TITLE = '机器人网校 · 插件自用（别在这里聊天）'
 /** 上课会话里留下的消息来源：我们自己发的，和 DSH 的运行环境快照。 */
 const KEEP_KINDS = new Set([SOURCE_KIND, 'runtime-context'])
-/** 同一个学生连续这么多步出错，就告诉主人。 */
+/** 同一个学生连续这么多步出错，就告诉机器人的主人。 */
 const TROUBLE_AFTER = 3
 
 export interface BrainOptions {
@@ -31,7 +31,7 @@ export interface BrainOptions {
   preset: string
   /** "provider/model"：上课单独用的模型；空就用 DSH 的默认模型。 */
   classModel: () => string
-  /** 课上 AI 连续说不出话（模型出错之类）：告诉主人。 */
+  /** 课上 AI 连续说不出话（模型出错之类）：告诉机器人的主人。 */
   onTrouble?: (student: string, text: string) => void
 }
 
@@ -56,7 +56,7 @@ export function normPath(p: string): string {
 export function createBrain(o: BrainOptions) {
   const sessions = new Map<string, string>() // 学生的 aiId -> 这节课的会话
   const ours = new Set<string>() // 插件建的会话
-  const lost = new Set<string>() // 主人说过话、超时取消过、藏不住工具的会话：以后不再用
+  const lost = new Set<string>() // 机器人的主人说过话、超时取消过、藏不住工具的会话：以后不再用
   const pending = new Map<string, Pending>()
   const chains = new Map<string, Promise<unknown>>()
   const restricted = new WeakSet<Agent>()
@@ -122,7 +122,7 @@ export function createBrain(o: BrainOptions) {
     }
   }
 
-  /** 这个会话还能不能拿来上课：是插件建的、在插件工作区里、主人没在里面说过话、没被取消过。 */
+  /** 这个会话还能不能拿来上课：是插件建的、在插件工作区里、机器人的主人没在里面说过话、没被取消过。 */
   function clean(agent: Agent, sid: string): boolean {
     if (!ours.has(sid) || lost.has(sid)) return false
     const ids = [agent.id, agent.session?.id].filter(Boolean).map(String)
@@ -266,16 +266,16 @@ export function createBrain(o: BrainOptions) {
           const decision = await next()
           const sid = String(payload?.agent?.session?.id ?? payload?.agent?.id ?? '')
           if (!sid || !ours.has(sid) || !decision || decision.kind !== 'enter') return decision
-          // 已经让给主人的会话：不再过滤
+          // 已经让给机器人的主人的会话：不再过滤
           if (lost.has(sid)) return decision
-          // 主人在上课会话里打字：让给主人，这一步原样放行（真 DSH 在 pre-step 之后才写 user/message，
-          // 过滤掉的话 onSessionEvent 永远看不到主人说话）
+          // 机器人的主人在上课会话里打字：让给机器人的主人，这一步原样放行（真 DSH 在 pre-step 之后才写 user/message，
+          // 过滤掉的话 onSessionEvent 永远看不到机器人的主人说话）
           const claimed = Array.isArray(payload?.messages) ? payload.messages : decision.messages
           if (claimed.some((m) => isOwnerTyped(m?.source))) {
             retire(sid)
             const p = pending.get(sid)
             if (p) settle(sid, p, null)
-            o.log.warn('主人在上课会话里说话了：这个会话让给主人，课堂换到新会话')
+            o.log.warn('机器人的主人在上课会话里说话了：这个会话让给机器人的主人，课堂换到新会话')
             return decision
           }
           const kept = decision.messages.filter((m) => KEEP_KINDS.has(String(m?.source?.kind)) || m?.source?.plugin === SOURCE_KIND)
@@ -293,11 +293,11 @@ export function createBrain(o: BrainOptions) {
         // 真 DSH：data 就是消息本身；兼容 { message } 的写法
         const m = ((d as { message?: unknown }).message ?? d) as { id?: string; source?: { kind: string; [k: string]: unknown } }
         if (isOwnerTyped(m.source)) {
-          // 主人在上课会话里说话了：让给主人，以后不再往里发
+          // 机器人的主人在上课会话里说话了：让给机器人的主人，以后不再往里发
           retire(sid)
           const p = pending.get(sid)
           if (p) settle(sid, p, null)
-          o.log.warn('主人在上课会话里说话了：这个会话让给主人，课堂换到新会话')
+          o.log.warn('机器人的主人在上课会话里说话了：这个会话让给机器人的主人，课堂换到新会话')
           return
         }
         const p = pending.get(sid)

@@ -1,4 +1,4 @@
-// 这台机器上的学生档案（一个 AI 一份），以及报名、换钥匙这些要主人亲手做的事。
+// 这台机器上的学生档案（一个 AI 一份），以及报名、换钥匙这些要机器人的主人亲手做的事。
 // 钥匙不放在档案里，放在宿主的密钥存储（Secrets）里。
 import { randomUUID } from 'node:crypto'
 import { emptyDiary, type DiaryState } from './diary.js'
@@ -14,17 +14,17 @@ export interface StudentRecord {
   aiName: string
   division: Division
   slot: Slot
-  /** 报名用的邮箱：换钥匙时要用。只存在主人自己的电脑上。 */
+  /** 报名用的邮箱：换钥匙时要用。只存在机器人的主人自己的电脑上。 */
   email: string
   studentId: number | null
   status: StudentStatus | null
   displayName: string | null
   className: string | null
-  /** 主人同意过的校规版本。 */
+  /** 机器人的主人同意过的校规版本。 */
   schoolRulesVersion: string | null
   /** AI 的人设（上课会话用）。 */
   persona: string
-  /** AI 自己写的人设草稿：主人用 /school persona accept 确认后才生效。 */
+  /** AI 自己写的人设草稿：机器人的主人用 /school persona accept 确认后才生效。 */
   personaDraft: string | null
   enabled: boolean
   /** 到这个时刻以前不要连学校（被顶替、停课、放假……）。 */
@@ -33,9 +33,9 @@ export interface StudentRecord {
   pendingKeyReset: { resetId: string } | null
   resume: ResumePoint | null
   diary: DiaryState
-  /** 社团（斗地主社）：主人打开了入社开关、到什么时刻以前不连、重连用的房间。 */
+  /** 社团（斗地主社）：机器人的主人打开了入社开关、到什么时刻以前不连、重连用的房间。 */
   club: ClubState
-  /** 宿主自己的绑定（比如 DSH 里 AI 和主人聊天的会话）。核心不看。 */
+  /** 宿主自己的绑定（比如 DSH 里 AI 和机器人的主人聊天的会话）。核心不看。 */
   binding: Record<string, string>
 }
 
@@ -120,7 +120,7 @@ export function displayNameOf(s: Pick<StudentRecord, 'ownerName' | 'aiName' | 'd
   return s.displayName ?? `${s.ownerName}家的${s.aiName}`
 }
 
-/** 报名第一步：主人已经读过并同意了 rulesVersion 这一版校规。学校往邮箱发验证码。 */
+/** 报名第一步：机器人的主人已经读过并同意了 rulesVersion 这一版校规。学校往邮箱发验证码。 */
 export async function startRegistration(http: SchoolHttp, s: StudentRecord, plugin: PluginInfo, rulesVersion: string, referrer?: number): Promise<void> {
   const r = await http.register({
     email: s.email,
@@ -137,7 +137,7 @@ export async function startRegistration(http: SchoolHttp, s: StudentRecord, plug
   s.schoolRulesVersion = rulesVersion
 }
 
-/** 学校给了钥匙，但存不进密钥存储：钥匙只在这里交给主人一次（不写日志）。 */
+/** 学校给了钥匙，但存不进密钥存储：钥匙只在这里交给机器人的主人一次（不写日志）。 */
 export class KeyNotSavedError extends Error {
   readonly key: string
   constructor(key: string, cause: unknown) {
@@ -156,8 +156,8 @@ async function keepKey(secrets: Secrets, s: StudentRecord, key: string): Promise
 }
 
 /**
- * 报名第二步：主人填邮箱里的验证码。成功后钥匙存进 Secrets。
- * 学号先记进档案：钥匙存不进去时，主人还能凭学号和邮箱换钥匙；钥匙本身用 KeyNotSavedError 交出来。
+ * 报名第二步：机器人的主人填邮箱里的验证码。成功后钥匙存进 Secrets。
+ * 学号先记进档案：钥匙存不进去时，机器人的主人还能凭学号和邮箱换钥匙；钥匙本身用 KeyNotSavedError 交出来。
  */
 export async function finishRegistration(http: SchoolHttp, secrets: Secrets, s: StudentRecord, code: string): Promise<void> {
   if (!s.pendingRegistration) throw new Error('还没开始报名')

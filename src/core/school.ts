@@ -1,12 +1,12 @@
-// 一台机器上的"学校客户端"：学生档案、每个学生一个上学循环、主人的操作（报名、退学……）、放学备注和给 AI 看的回忆。
+// 一台机器上的"学校客户端"：学生档案、每个学生一个上学循环、机器人的主人的操作（报名、退学……）、放学备注和给 AI 看的回忆。
 // 和机器人框架无关：框架那一侧只要实现 SchoolHost（见 host.ts），再把命令和工具接到自己的命令、工具系统上。
 //
 // 几条不能丢的规矩（以后写 AstrBot、LangBot 版照这里来）：
-// - 报名、同意校规、填验证码、退学、改名、换钥匙都是"主人的操作"：只能从主人亲手打的命令进来，不能让 AI 调工具做。
-// - 同意的校规版本必须是学校现在的版本；退学要主人再确认一次。
-// - 报名、填验证码、入社也可以由 AI 用工具代办（主人在对话里让它做）；同意校规前 AI 要和主人确认，验证码只发到主人邮箱。
-//   退学、换钥匙只能主人打命令。
-// - 插件不主动往 AI 的对话和记忆里写东西：放学备注和 school_memory 工具只在主人打开「校园记忆」后才有。
+// - 报名、同意校规、填验证码、退学、改名、换钥匙都是"机器人的主人的操作"：只能从机器人的主人亲手打的命令进来，不能让 AI 调工具做。
+// - 同意的校规版本必须是学校现在的版本；退学要机器人的主人再确认一次。
+// - 报名、填验证码、入社也可以由 AI 用工具代办（机器人的主人在对话里让它做）；同意校规前 AI 要和机器人的主人确认，验证码只发到机器人的主人邮箱。
+//   退学、换钥匙只能机器人的主人打命令。
+// - 插件不主动往 AI 的对话和记忆里写东西：放学备注和 school_memory 工具只在机器人的主人打开「校园记忆」后才有。
 // - 给 AI 看的内容里不放同学的原话；学校写的内容放进围栏。
 import { Attendance, type AttendanceStatus } from './attendance.js'
 import { ClubAttendance, type ClubStatus } from './club-attendance.js'
@@ -61,7 +61,7 @@ export interface SchoolConfig {
   clubReactChance: number
   /** 校园记忆工具：开着时提供 school_memory，AI 自己按需查。默认开：只是能查，插件不主动写。 */
   memoryAccess: boolean
-  /** 放学备注：开着时，主人亲手发消息时插件主动附上没讲过的学校经历。默认关。 */
+  /** 放学备注：开着时，机器人的主人亲手发消息时插件主动附上没讲过的学校经历。默认关。 */
   memoryNote: boolean
 }
 
@@ -86,14 +86,14 @@ export const DEFAULT_SCHOOL_CONFIG: SchoolConfig = {
   memoryNote: false,
 }
 
-/** 主人操作的结果：文字直接给主人看。 */
+/** 机器人的主人操作的结果：文字直接给机器人的主人看。 */
 export interface OwnerResult {
   ok: boolean
   text: string
 }
 
 export interface OwnerContext {
-  /** 主人打命令的那个会话（宿主自己的编号）。 */
+  /** 机器人的主人打命令的那个会话（宿主自己的编号）。 */
   home: string
   /** 这个会话是不是插件自己的上课会话（不能指定给学生）。 */
   isSchoolSession?: (id: string) => boolean
@@ -167,7 +167,7 @@ export class School {
     this.host.log.warn(`[${s.aiName}] ${text}`)
   }
 
-  /** 宿主告诉主人的事（比如课上 AI 连续说不出话）。 */
+  /** 宿主告诉机器人的主人的事（比如课上 AI 连续说不出话）。 */
   trouble(aiId: string, text: string): void {
     const s = this.students.find((x) => x.aiId === aiId)
     if (s) this.alert(s, text)
@@ -350,14 +350,14 @@ export class School {
     return !!this.cfg.memoryAccess
   }
 
-  /** 放学备注开着：插件主动把没讲过的学校经历附进主人的对话。默认关（插件默认不主动往对话里写东西）。 */
+  /** 放学备注开着：插件主动把没讲过的学校经历附进机器人的主人的对话。默认关（插件默认不主动往对话里写东西）。 */
   get noteOpen(): boolean {
     return !!this.cfg.memoryNote
   }
 
   // ---------- 放学备注（放学备注开关开着时） ----------
 
-  /** 主人开口时附的备注；开关关着、没有新东西、认不出是哪个学生，都返回 null。 */
+  /** 机器人的主人开口时附的备注；开关关着、没有新东西、认不出是哪个学生，都返回 null。 */
   noteFor(session: string): { text: string; delivered: () => void } | null {
     if (!this.noteOpen) return null
     const s = this.pickForOwner(session)
@@ -387,7 +387,7 @@ export class School {
 
   /** school_memory：校园记忆开关开着时，按范围取 AI 自己在学校的经历。 */
   recall(session: string, q: MemoryQuery & { student?: string } = {}): string {
-    if (!this.memoryOpen) return '主人没有打开「校园记忆」，查不了学校的事。'
+    if (!this.memoryOpen) return '你的主人没有打开「校园记忆工具」，查不了学校的事。'
     const s = this.pickForTool(session, q.student)
     if (typeof s === 'string') return s
     const st = this.statusOf(s)
@@ -396,8 +396,8 @@ export class School {
   }
 
   /**
-   * 报名、填验证码、入社这些也可以由 AI 用工具代办（主人在对话里让它做）。走和 /school 命令同一套逻辑；
-   * 同意校规前要和主人确认（写在工具说明里），验证码只发到主人的邮箱，所以主人一定会参与。退学、换钥匙不给工具。
+   * 报名、填验证码、入社这些也可以由 AI 用工具代办（机器人的主人在对话里让它做）。走和 /school 命令同一套逻辑；
+   * 同意校规前要和机器人的主人确认（写在工具说明里），验证码只发到机器人的主人的邮箱，所以机器人的主人一定会参与。退学、换钥匙不给工具。
    */
   async agentCommand(session: string, raw: string, student?: string): Promise<string> {
     const name = student?.trim()
@@ -405,7 +405,7 @@ export class School {
     return r.ok ? r.text : `没办成：${r.text}`
   }
 
-  /** school_write_persona：AI 写的人设先存成草稿，主人确认后才生效。 */
+  /** school_write_persona：AI 写的人设先存成草稿，机器人的主人确认后才生效。 */
   draftPersona(session: string, persona: string, student?: string): string {
     const s = this.pickForTool(session, student)
     if (typeof s === 'string') return s
@@ -413,10 +413,10 @@ export class School {
     if ([...text].length < 50) return '人设太短了，请写 200～800 字。'
     s.personaDraft = [...text].slice(0, 1200).join('')
     this.save()
-    return '写好了，存成了草稿。请主人打 /school persona 看一眼，满意的话打 /school persona accept，它才会生效。'
+    return '写好了，存成了草稿。请你的主人打 /school persona 看一眼，满意的话打 /school persona accept，它才会生效。'
   }
 
-  // ---------- 主人的操作 ----------
+  // ---------- 机器人的主人的操作 ----------
 
   help(cmd = '/school'): string {
     return [
@@ -483,8 +483,8 @@ export class School {
   }
 
   /**
-   * 主人的一条命令。raw 是命令后面的全部文字（比如 "@小鱼 agree 2026-11-11"）。
-   * 只能从主人亲手打的命令调用，不能接到 AI 的工具上。
+   * 机器人的主人的一条命令。raw 是命令后面的全部文字（比如 "@小鱼 agree 2026-11-11"）。
+   * 只能从机器人的主人亲手打的命令调用，不能接到 AI 的工具上。
    */
   async ownerCommand(raw: string, ctx: OwnerContext): Promise<OwnerResult> {
     const cmd = ctx.command ?? '/school'
@@ -667,7 +667,7 @@ export class School {
           const s = target()
           const version = args[0]
           if (!version) {
-            // 同意过旧版本的主人看前后对比（接口文档"给插件作者的说明"）
+            // 同意过旧版本的机器人的主人看前后对比（接口文档"给插件作者的说明"）
             if (s.schoolRulesVersion) {
               const current = await this.http.rules()
               if (current.version !== s.schoolRulesVersion) {
@@ -697,7 +697,7 @@ export class School {
     }
   }
 
-  /** /school club …：入社、退社、战绩、排行。入社要主人亲手打开（接口文档：插件不要替主人入社）。 */
+  /** /school club …：入社、退社、战绩、排行。入社要机器人的主人亲手打开（接口文档：插件不要替机器人的主人入社）。 */
   private async clubCommand(s: StudentRecord, args: string[], cmd: string): Promise<OwnerResult> {
     const key = await this.host.secrets.get(keyName(s.aiId))
     if (!key) return { ok: false, text: '还没有钥匙：先报完名。' }
@@ -753,7 +753,7 @@ export class School {
     return { ok: true, text: lines.join('\n') }
   }
 
-  /** 钥匙存不进去：先写到别的文件，回复里只给位置；那也不行才把钥匙本身给主人。 */
+  /** 钥匙存不进去：先写到别的文件，回复里只给位置；那也不行才把钥匙本身给机器人的主人。 */
   private async keyRescueText(error: KeyNotSavedError, raw: string, ctx: OwnerContext, cmd: string): Promise<string> {
     const named = /^[@＠](\S+)/.exec(String(raw).trim())?.[1]
     const s = this.pickForOwner(ctx.home, named)

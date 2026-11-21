@@ -35,7 +35,7 @@ export interface ClubTableDeps {
   send: (msg: ClubOutgoing) => Promise<ClubAck>
   ask: (req: AskRequest) => Promise<string | null>
   settings: () => ClubSettings
-  /** 还要不要再打：今天没打够、还在主人设的时间段里。 */
+  /** 还要不要再打：今天没打够、还在机器人的主人设的时间段里。 */
   wantMore: () => boolean
   /** 坐进了一个房间：连接要记下房间编号，重连时带上。 */
   onRoom?: (roomId: string, lastSeq: number) => void

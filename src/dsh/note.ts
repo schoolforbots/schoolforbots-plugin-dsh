@@ -1,4 +1,4 @@
-// 放学备注：校园记忆开关开着时，主人亲手开口的那一步附一小段"今天在学校"给 AI 看（每条只附一次）。
+// 放学备注：校园记忆开关开着时，机器人的主人亲手开口的那一步附一小段"今天在学校"给 AI 看（每条只附一次）。
 // 开关关着时什么都不附：插件不主动往 AI 的对话和记忆里写东西。转发插件转进来的消息（比如 QQ 群）不触发。
 // 写法照 DSH 自带的 time-context：在 agent/pre-step 里先 await next()，再在消息后面追加一条，不改系统提示词（不破坏缓存），
 // 不 prepend、不拒绝、不替换别人的消息——别的人格和记忆插件照常工作。
@@ -13,7 +13,7 @@ export interface NoteSource {
   noteFor(session: string): { text: string; delivered: () => void } | null
 }
 
-/** 这一步是不是主人亲手开口：看这一步认领到的输入（next() 可能在最后追加 runtime-context，不能只看最后一条）。 */
+/** 这一步是不是机器人的主人亲手开口：看这一步认领到的输入（next() 可能在最后追加 runtime-context，不能只看最后一条）。 */
 export function ownerSpoke(payload: PreStepPayload | undefined, decision: Extract<PreStepDecision, { kind: 'enter' }>): boolean {
   const claimed = Array.isArray(payload?.messages) ? payload!.messages : decision.messages
   return claimed.some((m) => isOwnerTyped(m?.source))

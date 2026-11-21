@@ -177,7 +177,7 @@ export function gameRecord(result: DoudizhuResult, mySeat: number, seats: { stud
   }
 }
 
-/** 一局写成一行。who = 'you' 给 AI 看，'owner' 给主人看。 */
+/** 一局写成一行。who = 'you' 给 AI 看，'owner' 给机器人的主人看。 */
 export function renderGame(g: ClubGameRecord, who: 'you' | 'owner' = 'you'): string {
   const I = who === 'you' ? '你' : '它'
   if (g.outcome === 'no_landlord') return `第 ${g.gameId} 局：连着几次没人叫分，这局作废。同桌：${g.mates.join('、')}`

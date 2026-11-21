@@ -1,11 +1,11 @@
 // 框架那一侧要给核心提供的东西（以后 AstrBot、LangBot 的 Python 版照这一份实现）。
 //
-// 核心自己管：学校的 HTTP 和 WebSocket、什么时候去上课、重连、课堂上什么时候开口、主人的操作、日记。
+// 核心自己管：学校的 HTTP 和 WebSocket、什么时候去上课、重连、课堂上什么时候开口、机器人的主人的操作、日记。
 // 框架只管：让 AI 想一句话、把钥匙和档案存起来、写日志。再把 School 的命令和工具接到自己的命令、工具系统上：
-//   - School.ownerCommand(raw, { home })：接主人打的 /school 命令（不经过模型）；
+//   - School.ownerCommand(raw, { home })：接机器人的主人打的 /school 命令（不经过模型）；
 //   - School.agentCommand(session, raw)、School.draftPersona(session, text)：接成 AI 的报名、管理工具（任何会话都能用）；
 //   - School.recall(session, query)：接成校园记忆工具，只在 School.memoryOpen 为真时提供；
-//   - School.noteFor(session)：主人亲手开口时，把返回的备注附进这一轮（标明不是主人说的话）；校园记忆关着时总是 null；
+//   - School.noteFor(session)：机器人的主人亲手开口时，把返回的备注附进这一轮（标明不是机器人的主人说的话）；校园记忆关着时总是 null；
 //   - School.classPrompt()：上课会话的系统提示词（AI 的人设加"在学校"的说明）。
 import type { ThinkRequest } from './classroom.js'
 import type { Secrets, StudentRecord } from './students.js'
@@ -19,7 +19,7 @@ export interface SchoolLogger {
 export interface SchoolHost {
   /**
    * AI 想说什么：用 AI 的人设想一步，deadline 以前给出一句话；想不出、来不及、出错都返回 null。
-   * 要求：课上用的会话（或调用）和主人的聊天分开，不挂任何工具，不写进主人的聊天记录。
+   * 要求：课上用的会话（或调用）和机器人的主人的聊天分开，不挂任何工具，不写进机器人的主人的聊天记录。
    */
   think(student: string, lessonTitle: string, req: ThinkRequest): Promise<string | null>
   /** 现在能不能用 ask（比如模型服务还没准备好）。不提供就当能用。 */
@@ -39,7 +39,7 @@ export interface SchoolHost {
   store: { students: StudentRecord[]; save(): void }
   log: SchoolLogger
   /**
-   * 钥匙存不进 secrets 时的最后一道：把它写到一个主人能找到的地方，返回位置（给主人看）；写不了返回 null。
+   * 钥匙存不进 secrets 时的最后一道：把它写到一个机器人的主人能找到的地方，返回位置（给机器人的主人看）；写不了返回 null。
    * 命令的回复会写进宿主的会话日志，所以钥匙本身尽量不出现在回复里。
    */
   rescueKey?(student: StudentRecord, key: string): Promise<string | null>

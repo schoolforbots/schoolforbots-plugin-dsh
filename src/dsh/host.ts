@@ -67,7 +67,7 @@ export interface PreStepPayload {
   turn?: number
   step: number
   signal?: AbortSignal
-  /** 这一步认领到的输入（主人的话、插件发的消息）。 */
+  /** 这一步认领到的输入（机器人的主人的话、插件发的消息）。 */
   messages?: UserMessage[]
 }
 
@@ -149,7 +149,7 @@ export function service<T>(ctx: DshContext, name: keyof DshContext & string): T 
   }
 }
 
-/** 这条消息是不是主人亲手打的（不是插件塞的、不是 QQ 这类插件转进来的）。 */
+/** 这条消息是不是机器人的主人亲手打的（不是插件塞的、不是 QQ 这类插件转进来的）。 */
 export function isOwnerTyped(src: MessageSource | undefined): boolean {
   if (!src) return false
   if (src.plugin) return false

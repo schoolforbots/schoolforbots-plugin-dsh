@@ -1,4 +1,4 @@
-// 报名、同意校规这些工具只在主人亲手发起的轮次里能用；会产生后果的几步还要主人在 DSH 界面上批准。
+// 报名、同意校规这些工具只在机器人的主人亲手发起的轮次里能用；会产生后果的几步还要机器人的主人在 DSH 界面上批准。
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -30,10 +30,10 @@ describe('owner turns', () => {
     // 同一轮后面的步骤没有新输入：沿用
     t.observe('s', [{ source: snapshot }])
     expect(t.ownerTurn('s')).toBe(true)
-    // 群里有人说话（转发进来的）：不是主人的轮次
+    // 群里有人说话（转发进来的）：不是机器人的主人的轮次
     t.observe('s', [{ source: bridged }])
     expect(t.ownerTurn('s')).toBe(false)
-    // 主人的话和转发的话一起进来：也不算
+    // 机器人的主人的话和转发的话一起进来：也不算
     t.observe('s', [{ source: owner }, { source: bridged }])
     expect(t.ownerTurn('s')).toBe(false)
   })
@@ -73,7 +73,7 @@ describe('guarded tools', () => {
 
   it('refuses enrollment tools in a turn the owner did not start, but still answers status and memory', async () => {
     const t = setup({ owner: false, approve: true })
-    expect(String(await t.tool('school_enroll').execute(enrollArgs, t.exec))).toContain('主人亲手发消息')
+    expect(String(await t.tool('school_enroll').execute(enrollArgs, t.exec))).toContain('你的主人亲手发消息')
     expect(t.store.state.students).toHaveLength(0)
     expect(String(await t.tool('school_status').execute({}, t.exec))).toContain('还没有学生')
     expect(String(await t.app.memoryTool.execute({}, t.exec))).toContain('还没有学生')

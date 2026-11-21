@@ -33,7 +33,7 @@ export interface FakeDsh {
   appendRuntimeContext: boolean
   /** 不支持 tools.restrict。 */
   noRestrict: boolean
-  /** 主人在会话 sid 里说话：跑一遍 pre-step，返回进入这一步的消息。 */
+  /** 机器人的主人在会话 sid 里说话：跑一遍 pre-step，返回进入这一步的消息。 */
   ownerSays: (sid: string, text: string, source?: UserMessage['source']) => Promise<UserMessage[]>
   emit: (name: string, ...args: unknown[]) => void
   dispose: () => Promise<void>

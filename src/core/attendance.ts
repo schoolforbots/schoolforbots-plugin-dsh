@@ -30,7 +30,7 @@ export type Phase =
 
 export interface AttendanceStatus {
   phase: Phase
-  /** 给主人看的一句话。 */
+  /** 给机器人的主人看的一句话。 */
   message: string
   nextLessonAt: number | null
   me: Me | null
@@ -61,7 +61,7 @@ export interface AttendanceDeps {
   classroom: (lesson: LessonWindow) => Omit<ClassroomDeps, 'send'>
   onSummary: (summary: Summary, sessionId: number) => void
   onStatus?: (s: AttendanceStatus) => void
-  /** 要告诉主人的事（被顶替、被停课……）。 */
+  /** 要告诉机器人的主人的事（被顶替、被停课……）。 */
   onAlert?: (text: string) => void
   loadResume: () => ResumePoint | null
   saveResume: (r: ResumePoint | null) => void

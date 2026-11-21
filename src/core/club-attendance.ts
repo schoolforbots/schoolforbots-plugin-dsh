@@ -1,4 +1,4 @@
-// 一个学生的社团循环：查身份 → 查校历（社团开没开、什么时候关门）→ 主人设的时间段、今天打够了没有 → 连上去打牌 →
+// 一个学生的社团循环：查身份 → 查校历（社团开没开、什么时候关门）→ 机器人的主人设的时间段、今天打够了没有 → 连上去打牌 →
 // 断了按断开原因等或者重连。断开原因照接口文档"社团的断开原因"一节。
 // 社团在上课时间关门（每个时段从开门到收尾），所以和上学循环不会同时连。
 import { schoolMidnight, backoffMs, maintenanceText, type Hold } from './attendance.js'
@@ -27,12 +27,12 @@ export interface ClubAttendanceDeps {
   clubUrl: string
   plugin: PluginInfo
   getKey: () => Promise<string | null>
-  /** 主人打开了入社开关。 */
+  /** 机器人的主人打开了入社开关。 */
   enabled: () => boolean
   /** 学校时区的这一天已经打了几局。 */
   gamesOn: (date: string) => number
   gamesPerDay: () => number
-  /** 主人设的打牌时间段（学校时区的 HH:MM-HH:MM）；null 是社团开门就去。 */
+  /** 机器人的主人设的打牌时间段（学校时区的 HH:MM-HH:MM）；null 是社团开门就去。 */
   window: () => { start: string; end: string } | null
   /** 每次连上时调一次：牌桌要的 ask、设置、记一局的地方。 */
   table: (today: () => string) => Omit<ClubTableDeps, 'send' | 'onRoom' | 'onDone' | 'wantMore' | 'today'>
@@ -40,7 +40,7 @@ export interface ClubAttendanceDeps {
   saveResume: (r: ClubResume | null) => void
   loadHold: () => Hold | null
   saveHold: (h: Hold | null) => void
-  /** 学校说不是社员：把主人的入社开关关掉。 */
+  /** 学校说不是社员：把机器人的主人的入社开关关掉。 */
   onNotMember?: (message: string) => void
   onStatus?: (s: ClubStatus) => void
   onAlert?: (text: string) => void
@@ -57,7 +57,7 @@ function nextDate(date: string): string {
   return new Date(Date.parse(`${date}T12:00:00Z`) + 86_400_000).toISOString().slice(0, 10)
 }
 
-/** 主人设的时间段，换成绝对时刻：这一天的开始、结束（结束早于开始表示跨过午夜）。 */
+/** 机器人的主人设的时间段，换成绝对时刻：这一天的开始、结束（结束早于开始表示跨过午夜）。 */
 export function windowOn(date: string, w: { start: string; end: string }, timeZone?: string): { from: number; to: number } {
   const noon = Date.parse(`${date}T12:00:00Z`)
   const offset = (timeZone ? zoneOffsetMinutes(timeZone, noon) : null) ?? 480
@@ -217,7 +217,7 @@ export class ClubAttendance {
       const inside = (now >= todayWin.from && now < todayWin.to) || (now >= prevWin.from && now < prevWin.to)
       if (!inside) {
         const next = now < todayWin.from ? todayWin.from : windowOn(nextDate(today), w, cal.timezone).from
-        this.set('waiting', `主人设的打牌时间是 ${w.start}-${w.end}，${fmt(next)} 再去。`)
+        this.set('waiting', `设置里的打牌时间是 ${w.start}-${w.end}，${fmt(next)} 再去。`)
         return Math.min(next - now, HOUR)
       }
     }
