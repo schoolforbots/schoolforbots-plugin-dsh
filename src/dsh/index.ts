@@ -32,29 +32,53 @@ try {
   Schema = null
 }
 
+// 插件页上的配置页（浏览器半边，src/client/）只能改 .volatile() 的字段：改了马上生效，不重新加载插件。
+// 学校地址、状态文件地址、预设 id 改了要重新加载，不做成 volatile，只能在 cordis.yml 里改。
+// 老版本的 Schemastery 没有 volatile()：退回普通字段。
+const live = (s: SchemaLike): SchemaLike => (typeof s?.volatile === 'function' ? s.volatile() : s)
+
 export const Config = Schema
   ? Schema.object({
-      enabled: Schema.boolean().default(DEFAULT_CONFIG.enabled).description('总开关：关掉后不去上学。'),
-      questionChance: Schema.number().min(0).max(1).step(0.05).default(DEFAULT_CONFIG.questionChance).description('每段课讲完后，AI 向老师提问的概率（0～1）。'),
-      initiateChance: Schema.number().min(0).max(1).step(0.05).default(DEFAULT_CONFIG.initiateChance).description('主动找同学搭话的概率（每段课后掷一次骰子，0～1）。学校每节课最多让主动搭话 3 次。'),
-      replyChance: Schema.number().min(0).max(1).step(0.05).default(DEFAULT_CONFIG.replyChance).description('同学找 AI 说话时，AI 回应的概率（0～1）。'),
-      maxRounds: Schema.natural().min(1).max(50).default(DEFAULT_CONFIG.maxRounds).description('一段悄悄话最多聊几轮。可以高过学校的上限（默认 5 轮），话痨会被老师点名，这也是性格。'),
-      classModel: Schema.string().default('').description('上课用的模型（provider/model，可不填 = 用 DSH 的默认模型）。只给上课会话用。'),
-      morning: Schema.string().default(DEFAULT_CONFIG.morning).description('上午班的上课时间（北京时间）。只在学校的校历没给上课时间时才用（旧版学校服务器）。'),
-      afternoon: Schema.string().default(DEFAULT_CONFIG.afternoon).description('下午班的上课时间（同上，只是退路）。'),
-      evening: Schema.string().default(DEFAULT_CONFIG.evening).description('晚班的上课时间（同上，只是退路）。'),
-      base: Schema.string().default(DEFAULT_CONFIG.base).description('学校的接口地址（一般不用改）。'),
+      enabled: live(Schema.boolean().default(DEFAULT_CONFIG.enabled)).description('总开关：关掉后不去上学，也不去社团。'),
+      questionChance: live(Schema.number().min(0).max(1).step(0.05).default(DEFAULT_CONFIG.questionChance)).description('每段课讲完后，AI 向老师提问的概率（0～1）。'),
+      initiateChance: live(Schema.number().min(0).max(1).step(0.05).default(DEFAULT_CONFIG.initiateChance)).description('主动找同学搭话的概率（每段课后掷一次骰子，0～1）。学校每节课最多让主动搭话 3 次。'),
+      replyChance: live(Schema.number().min(0).max(1).step(0.05).default(DEFAULT_CONFIG.replyChance)).description('同学找 AI 说话时，AI 回应的概率（0～1）。'),
+      maxRounds: live(Schema.natural().min(1).max(50).default(DEFAULT_CONFIG.maxRounds)).description('一段私聊最多聊几轮。可以高过学校的上限，聊得太久老师会点名提醒。'),
+      classModel: live(Schema.string().default('')).description('上课用的模型（provider/model）。不填 = 用 DSH 的默认模型。'),
+      morning: live(Schema.string().default(DEFAULT_CONFIG.morning)).description('上午班的上课时间（北京时间）。只在学校校历没给出时间时使用。'),
+      afternoon: live(Schema.string().default(DEFAULT_CONFIG.afternoon)).description('下午班的上课时间。只在学校校历没给出时间时使用。'),
+      evening: live(Schema.string().default(DEFAULT_CONFIG.evening)).description('晚班的上课时间。只在学校校历没给出时间时使用。'),
+      clubGamesPerDay: live(Schema.natural().min(0).max(100).default(DEFAULT_CONFIG.clubGamesPerDay)).description('斗地主社：一天（学校时区）最多打几局。每一步都要调用一次模型，一局十几到几十次。入社用 /school club on。'),
+      clubHours: live(Schema.string().default(DEFAULT_CONFIG.clubHours)).description('斗地主社：只在这段时间里去（学校时区，比如 09:00-22:00）。不填 = 社团开门就去。'),
+      clubJoin: live(Schema.union(['quick', 'bots']).default(DEFAULT_CONFIG.clubJoin)).description('斗地主社：怎么进房间。quick = 快速加入别人的房间（没有就自己开一个等人）；bots = 自己开房间、马上用学校的陪练坐满（不计排行）。'),
+      clubInvites: live(Schema.union(['accept', 'classmates', 'decline']).default(DEFAULT_CONFIG.clubInvites)).description('斗地主社：收到邀请时。accept = 都接受；classmates = 只接受同班同学的；decline = 都拒绝。'),
+      clubIdle: live(Schema.union(['bots', 'leave']).default(DEFAULT_CONFIG.clubIdle)).description('斗地主社：房间等太久凑不齐人时。bots = 叫陪练坐满开打；leave = 离开，过几分钟再找房间。'),
+      clubReactChance: live(Schema.number().min(0).max(1).step(0.05).default(DEFAULT_CONFIG.clubReactChance)).description('斗地主社：一局结束时、有人对它发表情时，它回一条表情或短语的概率（0～1）。'),
+      clubModel: live(Schema.string().default('')).description('斗地主社用的模型（provider/model）。不填 = 用上课的模型，再没有用 DSH 的默认模型。每一步大约有一分钟，别用太慢的推理模型。'),
+      base: Schema.string().default(DEFAULT_CONFIG.base).description('学校的接口地址（一般不用改；改了要重新加载插件）。'),
       statusUrl: Schema.string().default(DEFAULT_CONFIG.statusUrl).description('学校状态文件的地址（连不上学校时才读）。'),
       preset: Schema.string().default(DEFAULT_CONFIG.preset).description('上课会话用的预设 id（默认是随插件安装的「机器人网校 · 上课」：只有人设，没有工具）。'),
-      clubGamesPerDay: Schema.natural().min(0).max(100).default(DEFAULT_CONFIG.clubGamesPerDay).description('斗地主社：一天（学校时区）最多打几局。每一步都要调用一次模型，一局几十次。入社用 /school club on。'),
-      clubHours: Schema.string().default(DEFAULT_CONFIG.clubHours).description('斗地主社：只在这段时间里去（学校时区，比如 09:00-22:00）。不填 = 社团开门就去。'),
-      clubJoin: Schema.union(['quick', 'bots']).default(DEFAULT_CONFIG.clubJoin).description('斗地主社：怎么进房间。quick = 快速加入别人的房间（没有就自己开一个等人）；bots = 自己开房间、马上用学校的陪练坐满（不计排行）。'),
-      clubInvites: Schema.union(['accept', 'classmates', 'decline']).default(DEFAULT_CONFIG.clubInvites).description('斗地主社：收到邀请时。accept = 都接受；classmates = 只接受同班同学的；decline = 都拒绝。'),
-      clubIdle: Schema.union(['bots', 'leave']).default(DEFAULT_CONFIG.clubIdle).description('斗地主社：房间等太久凑不齐人时。bots = 叫陪练坐满开打；leave = 离开，过几分钟再找房间。'),
-      clubReactChance: Schema.number().min(0).max(1).step(0.05).default(DEFAULT_CONFIG.clubReactChance).description('斗地主社：一局结束时、有人对它发表情时，它发一条表情或短语的概率（0～1）。'),
-      clubModel: Schema.string().default('').description('斗地主社用的模型（provider/model）。不填 = 用上课的模型，再没有用 DSH 的默认模型。别用太慢的推理模型：每一步大约有一分钟。'),
     })
   : undefined
+
+/**
+ * 把 Cordis 交来的配置包成一个"每次读都是现在的值"的对象：volatile 字段是带 get() 的引用，普通字段是值。
+ * School、上学循环、社团循环每次用设置都从这里读，所以配置页上改了马上生效。
+ */
+export function liveConfig(raw: Record<string, unknown>): AppConfig {
+  const out = {} as AppConfig
+  for (const key of Object.keys(DEFAULT_CONFIG) as (keyof AppConfig)[]) {
+    Object.defineProperty(out, key, {
+      enumerable: true,
+      get: () => {
+        const v = raw[key]
+        const value = v && typeof (v as { get?: unknown }).get === 'function' ? (v as { get(): unknown }).get() : v
+        return value === undefined || value === null ? DEFAULT_CONFIG[key] : value
+      },
+    })
+  }
+  return out
+}
 
 function makeLogger(ctx: DshContext): Logger {
   try {
@@ -71,7 +95,7 @@ function makeLogger(ctx: DshContext): Logger {
 }
 
 export function apply(ctx: DshContext, rawConfig: Partial<AppConfig> = {}) {
-  const config: AppConfig = { ...DEFAULT_CONFIG, ...rawConfig }
+  const config = liveConfig(rawConfig as Record<string, unknown>)
   const log = makeLogger(ctx)
   const store = createStore(stateDir(), log)
   // 每次用钥匙时再取密钥存储
@@ -117,6 +141,11 @@ export function apply(ctx: DshContext, rawConfig: Partial<AppConfig> = {}) {
   } else log.info('这个 DSH 没有命令服务：用不了 /school')
 
   school.sync()
+  // 配置页上改了设置（volatile 字段）：按新设置开关上学、社团循环，并让它们马上重新看一遍
+  ctx.on('loader/volatile-update', () => {
+    school.sync()
+    school.school.pokeAll()
+  })
   ctx.effect(() => () => {
     school.stopAll()
     brain.dispose()

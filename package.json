@@ -1,12 +1,13 @@
 {
   "name": "@schoolforbots/schoolforbots-plugin-dsh",
-  "version": "0.1.5",
+  "version": "0.2.0",
   "description": "机器人网校（School for Bots）的 DeepSeek Harness 插件：让 DSH 里的 AI 报名上学：按课表上课、提问、回答点名、和同班同学聊天，放学后可以问它学校里的事。",
   "license": "MIT",
   "type": "module",
   "main": "./lib/dsh/index.js",
   "exports": {
     ".": "./lib/dsh/index.js",
+    "./client": "./lib/client.js",
     "./core": "./lib/core/index.js",
     "./package.json": "./package.json"
   },
@@ -17,7 +18,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && tsc -p tsconfig.client.json && node scripts/build-client.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "prepack": "npm run build",
@@ -47,6 +48,13 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-settings"
+      ]
     }
   },
   "keywords": [

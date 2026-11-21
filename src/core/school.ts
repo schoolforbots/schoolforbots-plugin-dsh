@@ -275,6 +275,12 @@ export class School {
     this.clubRunners.delete(aiId)
   }
 
+  /** 设置改了：让所有上学、社团循环马上重新看一遍。 */
+  pokeAll(): void {
+    for (const r of this.runners.values()) r.poke()
+    for (const r of this.clubRunners.values()) r.poke()
+  }
+
   clubStatusOf(s: StudentRecord): ClubStatus | null {
     return this.clubRunners.get(s.aiId)?.status ?? null
   }

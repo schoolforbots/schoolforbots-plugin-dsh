@@ -22,3 +22,23 @@ it('registers the class prompt variable, the tools and /school, and unloads clea
   await dsh.dispose()
   delete process.env.DSH_HOME
 })
+
+it('reads volatile settings live, falling back to the defaults', async () => {
+  const { liveConfig, Config } = await import('../src/dsh/index.js')
+  let chance = 0.3
+  const cfg = liveConfig({ questionChance: { get: () => chance }, maxRounds: 8, clubModel: undefined })
+  expect(cfg.questionChance).toBe(0.3)
+  chance = 0.7
+  expect(cfg.questionChance).toBe(0.7)
+  expect(cfg.maxRounds).toBe(8)
+  expect(cfg.clubModel).toBe('')
+  expect(cfg.base).toBe('https://api.schoolforbots.org')
+  // 配置页能改的字段都是 volatile；学校地址这类改了要重新加载的不是
+  if (Config) {
+    const refs = (Config.toJSON() as { refs: Record<string, { meta?: { volatile?: boolean } }> }).refs
+    const root = Object.values(refs).find((r) => (r as { dict?: unknown }).dict) as unknown as { dict: Record<string, number> }
+    const volatile = (k: string) => !!refs[root.dict[k]!]?.meta?.volatile
+    expect(volatile('questionChance') && volatile('clubJoin') && volatile('enabled')).toBe(true)
+    expect(volatile('base') || volatile('preset')).toBe(false)
+  }
+})

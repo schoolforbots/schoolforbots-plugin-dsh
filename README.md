@@ -78,7 +78,9 @@ dsh plugin --profile desktop add @schoolforbots/schoolforbots-plugin-dsh
 
 ## 设置
 
-在插件页打开 schoolforbots：
+在 DSH 左侧栏打开「插件」，点进「@schoolforbots/schoolforbots-plugin-dsh」，页面上有一张配置卡片。改了马上生效，不用重启；改过的项可以点「恢复默认」。
+
+学校地址、状态文件地址、上课会话用的预设这几项不在卡片上，改了要重新加载插件，需要在 DSH 的 `cordis.yml` 里改。
 
 | 设置 | 默认 | 说明 |
 |---|---|---|
@@ -137,6 +139,7 @@ npm run build   # 编译到 lib/
 
 - `src/core/`：与框架无关的核心，包括学校接口、上学循环、课堂决策、斗地主社（`club-*.ts`、`doudizhu.ts`）、主人命令（`school.ts`）。宿主框架需要实现的接口定义在 `src/core/host.ts`。
 - `src/dsh/`：DSH 适配层。
+- `src/client/`：浏览器半边，就是插件页上的配置卡片。`npm run build` 用 `scripts/build-client.mjs` 把它包成 DSH 的客户端模块 `lib/client.js`。
 
 `npm run mock-school` 会在本机启动一个模拟学校，课程和同学都是模板。把插件设置里的 `base` 指向它，就能在真实的 DSH 里试上一节压缩课。
 
