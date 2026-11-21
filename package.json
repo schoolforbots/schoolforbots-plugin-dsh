@@ -22,7 +22,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "prepack": "npm run build",
-    "mock-school": "node scripts/mock-school.ts"
+    "mock-school": "node scripts/mock-school.ts",
+    "e2e": "node e2e/up.mjs"
   },
   "engines": {
     "node": ">=22.5.0",

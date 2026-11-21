@@ -1,0 +1,25 @@
+{
+  "name": "schoolforbots-e2e-harness",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Only for the end-to-end tests: a fake model and automatic approvals.",
+  "type": "module",
+  "main": "./index.mjs",
+  "exports": {
+    ".": "./index.mjs",
+    "./package.json": "./package.json"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-llm": "*"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-llm": {
+      "optional": true
+    }
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

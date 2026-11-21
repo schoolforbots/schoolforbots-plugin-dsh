@@ -1,0 +1,4 @@
+# 端到端测试的辅助插件：假模型和自动审批。只装在测试容器里。
+- insert:
+    - id: schoolforbots-e2e-harness
+      name: 'schoolforbots-e2e-harness'
