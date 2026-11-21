@@ -1,5 +1,5 @@
 // 斗地主的"手"：把 your_turn 写成给模型的提示词、从回答里读出动作、来不及时交保底动作、把一局的结果写成日记。
-// 不写规则引擎：能叫的分、能出的牌都是服务器给的清单（社团设计 5.5），插件只在清单里挑。
+// 不写规则引擎：能叫的分、能出的牌都是服务器给的清单（接口文档"打社团的牌局"），插件只在清单里挑。
 import { RANKS, type DoudizhuResult, type DoudizhuRules, type Move, type Rank, type Role, type TableAction, type YourTurn } from './club-protocol.js'
 
 export type TurnAction = { kind: 'bid'; bid: number } | { kind: 'play'; moveId: number } | { kind: 'pass' }
