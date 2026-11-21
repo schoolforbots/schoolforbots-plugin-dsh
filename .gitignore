@@ -5,3 +5,4 @@ lib/
 .env.*
 mock-school-transcript.log
 mock-school-students.json
+e2e/.build/

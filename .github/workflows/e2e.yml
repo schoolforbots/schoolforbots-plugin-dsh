@@ -1,0 +1,30 @@
+name: E2E
+
+# The end-to-end test (e2e/README.md): a local school and a DSH with the plugin, in containers. It takes about ten
+# minutes, so it is not a required check; run it by hand, or weekly against the latest DSH and server images.
+on:
+  workflow_dispatch:
+    inputs:
+      dsh_version:
+        description: 'DSH version (npm @deepseek-ai/dsh)'
+        default: latest
+  schedule:
+    - cron: '0 3 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run e2e
+        env:
+          DSH_VERSION: ${{ inputs.dsh_version || 'latest' }}

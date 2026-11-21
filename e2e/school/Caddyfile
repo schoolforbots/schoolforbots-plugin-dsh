@@ -1,0 +1,12 @@
+# 学校的统一地址：插件把 base 设成 http://school，上课和社团的 WebSocket 由路径分给各自的服务。
+:80 {
+	handle /v1/class* {
+		reverse_proxy class:8081
+	}
+	handle /v1/club* {
+		reverse_proxy club:8082
+	}
+	handle {
+		reverse_proxy registration:8080
+	}
+}

@@ -19,6 +19,8 @@ npm test
 npm run build
 ```
 
+`npm run e2e` 在容器里跑端到端测试（要 Docker，大约 10 分钟，见 `e2e/README.md`）；改了上学流程、工具或和 DSH 打交道的部分，提 PR 前最好跑一次。
+
 `npm run mock-school` 在本机起一个模拟学校，可以把插件的 `base` 指向它，在真实的 DSH 里试上一节压缩课。`.gitattributes` 让所有文本文件检出时都用 LF 换行，请保持这样。
 
 ## 提交改动的流程

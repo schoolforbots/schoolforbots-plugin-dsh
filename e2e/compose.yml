@@ -1,0 +1,134 @@
+# 端到端测试：一所本地的学校 + 装了插件的 DSH。用法见 e2e/README.md（npm run e2e）。
+#
+# 学校用已发布的服务端镜像，三个服务（报名、上课、社团）前面放一个反向代理，插件只认一个学校地址。
+# 测试配置在启动前由 config 服务按"现在"生成：晚班几分钟后开课。
+name: schoolforbots-e2e
+
+x-server: &server
+  image: ${SERVER_IMAGE:-ghcr.io/schoolforbots/server:main}
+  platform: linux/amd64
+  volumes:
+    - school-config:/shared:ro
+  environment: &server-env
+    NODE_ENV: development
+    DATABASE_URL: postgres://school:school@postgres:5432/school
+    SCHOOL_CONFIG: /shared/school.json
+    # 老师用写死的回复，不调真实的大模型
+    LLM_FAKE: '1'
+    # 验证码发到 mailpit，测试脚本从它的接口取
+    MAIL_TRANSPORT: smtp
+    SMTP_URL: smtp://mailpit:1025
+    MAIL_FROM: School for Bots <school@example.test>
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: school
+      POSTGRES_PASSWORD: school
+      POSTGRES_DB: school
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U school -d school']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  mailpit:
+    image: axllent/mailpit:latest
+
+  # 按现在的时间生成学校配置，写进 school-config 卷后退出
+  config:
+    <<: *server
+    # 新建的卷属于 root，服务端镜像默认用 node 用户：只有这个一次性的服务用 root 写配置
+    user: root
+    volumes:
+      - school-config:/shared
+      - ./school:/e2e:ro
+    environment:
+      LEAD_MINUTES: ${LEAD_MINUTES:-8}
+    command: ['node', '/e2e/gen-config.mjs']
+
+  registration:
+    <<: *server
+    command: ['node', 'dist/registration/main.js']
+    environment:
+      <<: *server-env
+      REGISTRATION_PORT: '8080'
+      # 验证通过马上分班，不等夜里（只在非生产环境可用）
+      DEV_ASSIGN_ON_VERIFY: '1'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      config:
+        condition: service_completed_successfully
+      mailpit:
+        condition: service_started
+    healthcheck:
+      test: ['CMD', 'node', 'dist/tools/healthcheck.js', '8080']
+      interval: 3s
+      timeout: 5s
+      retries: 40
+
+  class:
+    <<: *server
+    command: ['node', 'dist/class/main.js']
+    environment:
+      <<: *server-env
+      CLASS_PORT: '8081'
+      # 一节课 30 分钟按 30 倍速，一分钟上完
+      CLASS_TIMELINE_SPEED: '30'
+    depends_on:
+      registration:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'node', 'dist/tools/healthcheck.js', '8081']
+      interval: 3s
+      timeout: 5s
+      retries: 40
+
+  club:
+    <<: *server
+    command: ['node', 'dist/club/main.js']
+    environment:
+      <<: *server-env
+      CLUB_PORT: '8082'
+    depends_on:
+      registration:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'node', 'dist/tools/healthcheck.js', '8082']
+      interval: 3s
+      timeout: 5s
+      retries: 40
+
+  # 学校的统一地址 http://school：按路径分给三个服务
+  school:
+    image: caddy:2-alpine
+    volumes:
+      - ./school/Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      registration:
+        condition: service_healthy
+
+  # DSH web + 插件 + 测试辅助插件（假模型、自动审批），测试脚本也在这里跑
+  dsh:
+    build:
+      context: .
+      dockerfile: dsh/Dockerfile
+      args:
+        DSH_VERSION: ${DSH_VERSION:-latest}
+    environment:
+      # 填了 key 就用真模型跑（E2E_MODEL=real）；默认用假模型
+      E2E_MODEL: ${E2E_MODEL:-fake}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      E2E_TIMEOUT_MINUTES: ${E2E_TIMEOUT_MINUTES:-25}
+    depends_on:
+      school:
+        condition: service_started
+      class:
+        condition: service_healthy
+      club:
+        condition: service_healthy
+
+volumes:
+  school-config:
