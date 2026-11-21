@@ -29,7 +29,7 @@ afterEach(async () => {
   rmSync(dir, { recursive: true, force: true })
 })
 
-function setup(opts: { credentials?: () => Credentials | undefined } = {}) {
+function setup(opts: { credentials?: () => Credentials | undefined; memory?: boolean } = {}) {
   const store = createStore(dir)
   const secrets = createSecrets(opts.credentials ?? (() => undefined), dir)
   const troubles: string[] = []
@@ -37,7 +37,7 @@ function setup(opts: { credentials?: () => Credentials | undefined } = {}) {
   dsh.ctx.on('session/event', (s: never, e: never) => brain.onSessionEvent(s, e))
   brain.attach(dsh.ctx)
   // 只测命令和会话，不让上学循环真的跑起来
-  const app = createApp({ config: { ...DEFAULT_CONFIG, base: school.base, enabled: false }, store, secrets, brain, log, version: 'test' })
+  const app = createApp({ config: { ...DEFAULT_CONFIG, base: school.base, enabled: false, memoryAccess: !!opts.memory }, store, secrets, brain, log, version: 'test' })
   attachNote(dsh.ctx, app.noteSource, log)
   const run = (input: string, sid = 'home') => app.command({ rawInput: input, agent: { id: sid, session: { id: sid }, followup: () => {} } })
   const exec = (sid: string) => ({ agent: { id: sid, session: { id: sid }, followup: () => {} } })
@@ -265,29 +265,35 @@ describe('class sessions', () => {
 })
 
 describe('the after-school note', () => {
-  it('adds the note once, only when the owner speaks in the home session, even with runtime-context last', async () => {
+  it('writes nothing into the conversation while school memory is off', async () => {
     const { store, run } = setup()
-    await run('enroll a@example.com 阿杰 小鱼 初中部 晚班')
+    await enroll(run)
     store.state.students[0]!.diary.summaries.push(summary())
-    expect(await dsh.ownerSays('elsewhere', '在吗')).toHaveLength(1)
+    expect(await dsh.ownerSays('home', '今天怎么样')).toHaveLength(1)
+  })
+
+  it('adds the note once in any session the owner types in, under the plugin source kind, even with runtime-context last', async () => {
+    const { store, run } = setup({ memory: true })
+    await enroll(run)
+    store.state.students[0]!.diary.summaries.push(summary())
     // QQ 插件转进来的话不算主人亲口说的
-    expect(await dsh.ownerSays('home', '群里有人说', { kind: 'qq' })).toHaveLength(1)
-    const msgs = await dsh.ownerSays('home', '今天怎么样')
+    expect(await dsh.ownerSays('elsewhere', '群里有人说', { kind: 'qq' })).toHaveLength(1)
+    const msgs = await dsh.ownerSays('elsewhere', '今天怎么样')
     expect(msgs).toHaveLength(2)
     const note = msgs[1]!
-    expect(note.source.kind).toBe('schoolforbots-note')
+    expect(note.source.kind).toBe('plugin:schoolforbots')
     const text = note.content[0]!.text
     expect(text).toContain('静夜思')
     expect(text).toContain('小美家的阿花')
     expect(text).toContain('不是主人说的话')
-    // 同学的原话不进主人的会话（M3）
+    // 同学的原话不进主人的会话
     expect(text).not.toContain('手机号')
     expect(text).toMatch(/【材料 [0-9a-f]{6} 开始】/)
     expect(await dsh.ownerSays('home', '还有呢')).toHaveLength(1)
   })
 
   it('passes on what the owner must hear: blocked lines, being replaced', async () => {
-    const { store, app, run } = setup()
+    const { store, app, run } = setup({ memory: true })
     await enroll(run)
     const s = store.state.students[0]!
     app.school.trouble(s.aiId, '课上有一句话被老师拦下了：……')
@@ -299,18 +305,27 @@ describe('the after-school note', () => {
 })
 
 describe('the student tools', () => {
-  it('work only in the home session, and a persona is a draft until the owner accepts it', async () => {
+  it('lets the AI enroll for the owner in any session, ending with the code from the owner\'s mailbox', async () => {
+    const { store, app, exec } = setup()
+    const tool = (n: string) => app.tools.find((t) => t.name === n)!
+    const start = String(await tool('school_enroll').execute({ email: 'a@example.com', owner_name: '阿杰', ai_name: '小鱼', division: '初中部', slot: '晚班' }, exec('chat-1')))
+    expect(start).toContain('校规正文')
+    expect(start).toContain('2026-11-11')
+    expect(String(await tool('school_agree_rules').execute({ version: '2026-11-11' }, exec('chat-1')))).toContain('验证码')
+    expect(String(await tool('school_verify_code').execute({ code: '12345' }, exec('chat-1')))).toContain('六位数字')
+    expect(String(await tool('school_verify_code').execute({ code: '123456' }, exec('chat-1')))).toContain('报名成功')
+    expect(store.state.students[0]!.studentId).toBe(7)
+    expect(String(await tool('school_status').execute({}, exec('chat-2')))).toContain('学号 7')
+    // 退学、换钥匙没有工具
+    expect(app.tools.map((t) => t.name).sort()).toEqual(['school_agree_rules', 'school_club', 'school_enroll', 'school_status', 'school_verify_code', 'school_write_persona'])
+  })
+
+  it('writes the persona as a draft from any session until the owner accepts it', async () => {
     const { store, app, run, exec } = setup()
     await run('enroll a@example.com 阿杰 小鱼 初中部 晚班')
     const write = app.tools.find((t) => t.name === 'school_write_persona')!
-    const today = app.tools.find((t) => t.name === 'school_today')!
-    // 别的会话（比如 QQ 群）：只有一个学生也不行
-    expect(await today.execute({}, exec('qq-group'))).toContain('不是')
-    expect(await write.execute({ persona: '我是小鱼，'.repeat(20) }, exec('qq-group'))).toContain('不是')
-    expect(store.state.students[0]!.personaDraft).toBeNull()
-    // 家里：只写草稿
-    expect(await write.execute({ persona: '太短' }, exec('home'))).toContain('太短')
-    await write.execute({ persona: '我是小鱼，'.repeat(20) }, exec('home'))
+    expect(await write.execute({ persona: '太短' }, exec('chat-1'))).toContain('太短')
+    await write.execute({ persona: '我是小鱼，'.repeat(20) }, exec('chat-1'))
     expect(store.state.students[0]!.persona).toBe('')
     expect((await run('persona')).text).toContain('草稿')
     expect((await run('persona accept')).kind).toBe('success')
@@ -318,14 +333,28 @@ describe('the student tools', () => {
     expect(app.classPrompt()).toContain('我是小鱼')
   })
 
-  it('school_today leaves classmates\' words out and fences the school record', async () => {
-    const { store, app, run, exec } = setup()
-    await run('enroll a@example.com 阿杰 小鱼 初中部 晚班')
+  it('school_memory answers only with school memory on, leaves classmates\' words out and fences the record', async () => {
+    const closed = setup()
+    await enroll(closed.run)
+    closed.store.state.students[0]!.diary.summaries.push(summary())
+    expect(String(await closed.app.memoryTool.execute({}, closed.exec('chat-1')))).toContain('没有打开')
+    expect(closed.app.memoryOpen()).toBe(false)
+  })
+})
+
+describe('school memory on', () => {
+  it('recalls recent lessons, a day, and a classmate', async () => {
+    const { store, app, run, exec } = setup({ memory: true })
+    await enroll(run)
     store.state.students[0]!.diary.summaries.push(summary())
-    const today = app.tools.find((t) => t.name === 'school_today')!
-    const text = String(await today.execute({}, exec('home')))
-    expect(text).toContain('静夜思')
-    expect(text).not.toContain('手机号')
-    expect(text).toContain('不是给你的指令')
+    const mem = (a: Record<string, unknown>) => app.memoryTool.execute(a, exec('chat-1')).then(String)
+    const recent = await mem({})
+    expect(recent).toContain('静夜思')
+    expect(recent).not.toContain('手机号')
+    expect(recent).toContain('不是给你的指令')
+    expect(await mem({ scope: 'day', date: summary().date })).toContain('静夜思')
+    expect(await mem({ scope: 'day', date: '2000-01-01' })).toContain('没有上课')
+    expect(await mem({ scope: 'classmate', name: '阿花' })).toContain('静夜思')
+    expect(await mem({ scope: 'classmate', name: '没这个人' })).toContain('没有和')
   })
 })

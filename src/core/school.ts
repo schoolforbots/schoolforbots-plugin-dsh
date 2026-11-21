@@ -4,14 +4,15 @@
 // 几条不能丢的规矩（以后写 AstrBot、LangBot 版照这里来）：
 // - 报名、同意校规、填验证码、退学、改名、换钥匙都是"主人的操作"：只能从主人亲手打的命令进来，不能让 AI 调工具做。
 // - 同意的校规版本必须是学校现在的版本；退学要主人再确认一次。
-// - AI 能用的只有两件事：想起自己在学校的经历（school_today），和写一份人设草稿（主人确认后才生效）。
-//   两者都只在 AI 的"家"（主人绑定的聊天会话）里有效。
+// - 报名、填验证码、入社也可以由 AI 用工具代办（主人在对话里让它做）；同意校规前 AI 要和主人确认，验证码只发到主人邮箱。
+//   退学、换钥匙只能主人打命令。
+// - 插件不主动往 AI 的对话和记忆里写东西：放学备注和 school_memory 工具只在主人打开「校园记忆」后才有。
 // - 给 AI 看的内容里不放同学的原话；学校写的内容放进围栏。
 import { Attendance, type AttendanceStatus } from './attendance.js'
 import { ClubAttendance, type ClubStatus } from './club-attendance.js'
 import { DEFAULT_CLUB_SETTINGS, type IdlePolicy, type InvitePolicy, type JoinMode } from './club-table.js'
 import { DEFAULT_CLASS_SETTINGS } from './classroom.js'
-import { addClubGame, addNotice, addSummary, clubDigest, clubGamesOn, markTold, schoolMemory, schoolNote, schoolReport, untold, untoldGames, untoldNotices } from './diary.js'
+import { addClubGame, addNotice, addSummary, clubDigest, clubGamesOn, markTold, memoryQuery, schoolNote, type MemoryQuery, schoolReport, untold, untoldGames, untoldNotices } from './diary.js'
 import type { SchoolHost } from './host.js'
 import type { LeaderboardEntry } from './club-protocol.js'
 import { createSchoolHttp, SchoolError, type SchoolHttp } from './http.js'
@@ -58,6 +59,8 @@ export interface SchoolConfig {
   clubInvites: InvitePolicy
   clubIdle: IdlePolicy
   clubReactChance: number
+  /** 校园记忆：开着才给 AI 附放学备注、才提供 school_memory 工具。默认关。 */
+  memoryAccess: boolean
 }
 
 export const DEFAULT_SCHOOL_CONFIG: SchoolConfig = {
@@ -77,6 +80,7 @@ export const DEFAULT_SCHOOL_CONFIG: SchoolConfig = {
   clubInvites: DEFAULT_CLUB_SETTINGS.invites,
   clubIdle: DEFAULT_CLUB_SETTINGS.idle,
   clubReactChance: DEFAULT_CLUB_SETTINGS.reactChance,
+  memoryAccess: false,
 }
 
 /** 主人操作的结果：文字直接给主人看。 */
@@ -88,7 +92,7 @@ export interface OwnerResult {
 export interface OwnerContext {
   /** 主人打命令的那个会话（宿主自己的编号）。 */
   home: string
-  /** 这个会话是不是插件自己的上课会话（不能绑成家）。 */
+  /** 这个会话是不是插件自己的上课会话（不能指定给学生）。 */
   isSchoolSession?: (id: string) => boolean
   /** 命令的叫法，比如 "/school"。用在提示语里。 */
   command?: string
@@ -332,18 +336,24 @@ export class School {
     return this.students.find((s) => s.binding.home === home) ?? null
   }
 
-  /** 主人的命令找学生：@名字 > 这个会话是谁的家 > 只有一个学生。 */
+  /** 找学生：指定的名字 > 这个会话绑定的学生（/school bind）> 只有一个学生。 */
   private pickForOwner(home: string, name?: string): StudentRecord | null {
     if (name) return this.students.find((s) => s.aiName === name || displayNameOf(s) === name) ?? null
     return this.studentAtHome(home) ?? (this.students.length === 1 ? this.students[0]! : null)
   }
 
-  // ---------- 放学备注 ----------
+  /** 校园记忆开关：开着才给 AI 附放学备注、才提供 school_memory。插件不主动往 AI 的记忆和对话里写东西。 */
+  get memoryOpen(): boolean {
+    return !!this.cfg.memoryAccess
+  }
 
-  /** 主人在 AI 的"家"里开口时附的备注；没有新东西返回 null。 */
-  noteFor(home: string): { text: string; delivered: () => void } | null {
-    const s = this.studentAtHome(home)
-    if (!s) return null
+  // ---------- 放学备注（校园记忆开关开着时） ----------
+
+  /** 主人开口时附的备注；开关关着、没有新东西、认不出是哪个学生，都返回 null。 */
+  noteFor(session: string): { text: string; delivered: () => void } | null {
+    if (!this.memoryOpen) return null
+    const s = this.pickForOwner(session)
+    if (!s || s.studentId === null) return null
     const text = schoolNote(s.diary, displayNameOf(s))
     if (!text) return null
     const ids = untold(s.diary).slice(0, 2).map((x) => x.sessionId)
@@ -358,21 +368,39 @@ export class School {
     }
   }
 
-  // ---------- AI 能做的两件事（只在家里） ----------
+  // ---------- 给 AI 用的工具 ----------
 
-  /** school_today：AI 想起自己最近在学校的经历。 */
-  recall(home: string): string {
-    const s = this.studentAtHome(home)
-    if (!s) return '这个会话不是在学校上学的你的"家"，这里查不了学校的事。主人可以在你们平时聊天的会话里打 /school bind。'
+  private pickForTool(session: string, name?: string): StudentRecord | string {
+    const s = this.pickForOwner(session, name?.trim() || undefined)
+    if (s) return s
+    if (!this.students.length) return '还没有学生报名。'
+    return `有几个学生，要指明是哪一个（student 参数填 AI 名：${this.students.map((x) => x.aiName).join('、')}）。`
+  }
+
+  /** school_memory：校园记忆开关开着时，按范围取 AI 自己在学校的经历。 */
+  recall(session: string, q: MemoryQuery & { student?: string } = {}): string {
+    if (!this.memoryOpen) return '主人没有打开「校园记忆」，查不了学校的事。'
+    const s = this.pickForTool(session, q.student)
+    if (typeof s === 'string') return s
     const st = this.statusOf(s)
     const head = `你在学校叫「${displayNameOf(s)}」${s.className ? `，在${s.className}` : ''}。${st ? `现在：${st.message}` : ''}`
-    return `${head}\n${schoolMemory(s.diary)}`
+    return `${head}\n${memoryQuery(s.diary, q)}`
+  }
+
+  /**
+   * 报名、填验证码、入社这些也可以由 AI 用工具代办（主人在对话里让它做）。走和 /school 命令同一套逻辑；
+   * 同意校规前要和主人确认（写在工具说明里），验证码只发到主人的邮箱，所以主人一定会参与。退学、换钥匙不给工具。
+   */
+  async agentCommand(session: string, raw: string, student?: string): Promise<string> {
+    const name = student?.trim()
+    const r = await this.ownerCommand(`${name ? `@${name} ` : ''}${raw}`, { home: session, command: '/school' })
+    return r.ok ? r.text : `没办成：${r.text}`
   }
 
   /** school_write_persona：AI 写的人设先存成草稿，主人确认后才生效。 */
-  draftPersona(home: string, persona: string): string {
-    const s = this.studentAtHome(home)
-    if (!s) return '这个会话不是在学校上学的你的"家"，这里不能写上学用的人设。'
+  draftPersona(session: string, persona: string, student?: string): string {
+    const s = this.pickForTool(session, student)
+    if (typeof s === 'string') return s
     const text = persona.trim()
     if ([...text].length < 50) return '人设太短了，请写 200～800 字。'
     s.personaDraft = [...text].slice(0, 1200).join('')
@@ -388,7 +416,7 @@ export class School {
       `${cmd} enroll 邮箱 主人名 AI名 学部 时段   开始报名（学部：小学部/初中部/高中部；时段：上午班/下午班/晚班）`,
       `${cmd} agree 校规版本           读过并同意校规后，让学校发验证码到邮箱`,
       `${cmd} code 六位验证码          填邮箱里的验证码（报名或换钥匙）`,
-      `${cmd} bind                    把这个会话设成 AI 的"家"（放学后在这里讲学校的事，AI 的工具也只在这里能用）`,
+      `${cmd} bind                    带几个学生时：把这个会话指定给这个学生（不指定的话，工具要说明是哪个学生）`,
       `${cmd} persona [人设]          看或改 AI 上学用的人设；AI 自己写的草稿用 ${cmd} persona accept 确认`,
       `${cmd} today                   AI 最近在学校的事`,
       `${cmd} records                 在校记录（批评、停课等）`,
@@ -412,7 +440,7 @@ export class School {
     else if (s.studentId === null) lines.push(`还没报完名：读过校规后用 ${cmd} agree 版本号。`)
     else if (!s.enabled) lines.push(`已经暂停上学（${cmd} on 恢复）。`)
     else if (st) lines.push(st.message)
-    if (!s.binding.home) lines.push(`还没绑定 AI 的"家"：在你平时和 AI 聊天的会话里打 ${cmd} bind。`)
+    if (this.students.length > 1 && !s.binding.home) lines.push(`带了几个学生：可以在和它聊天的会话里打 ${cmd} @${s.aiName} bind，把会话指定给它。`)
     if (!s.persona.trim()) lines.push(`还没写上学用的人设：${cmd} persona 一段话，或者请 AI 自己写一份草稿（AI 会调用 school_write_persona）。`)
     if (s.personaDraft) lines.push(`AI 写了一份人设草稿，等你确认：${cmd} persona 看，${cmd} persona accept 确认。`)
     const pendingNotices = untoldNotices(s.diary)
@@ -547,7 +575,7 @@ export class School {
           if (ctx.isSchoolSession?.(home)) return fail('这是插件自己的上课会话，不能当 AI 的家。')
           s.binding.home = home
           this.save()
-          return ok(`好了：放学后「${displayNameOf(s)}」会在这个会话里讲学校的事（你开口时附一小段备注，不会自己往这里发消息）；AI 查学校的事、写人设草稿也只在这里能用。`)
+          return ok(`好了：这个会话指定给「${displayNameOf(s)}」。在这里，学校的工具不用说明是哪个学生${this.memoryOpen ? '，放学备注也附这个学生的' : ''}。`)
         }
         case 'persona': {
           const s = target()

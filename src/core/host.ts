@@ -2,9 +2,10 @@
 //
 // 核心自己管：学校的 HTTP 和 WebSocket、什么时候去上课、重连、课堂上什么时候开口、主人的操作、日记。
 // 框架只管：让 AI 想一句话、把钥匙和档案存起来、写日志。再把 School 的命令和工具接到自己的命令、工具系统上：
-//   - School.ownerCommand(raw, { home })：只接主人亲手打的命令（不经过模型）；
-//   - School.recall(home)、School.draftPersona(home, text)：接成 AI 能用的两个工具，home 是调用工具的那个会话；
-//   - School.noteFor(home)：主人在家里开口时，把返回的备注附进这一轮（标明不是主人说的话）；
+//   - School.ownerCommand(raw, { home })：接主人打的 /school 命令（不经过模型）；
+//   - School.agentCommand(session, raw)、School.draftPersona(session, text)：接成 AI 的报名、管理工具（任何会话都能用）；
+//   - School.recall(session, query)：接成校园记忆工具，只在 School.memoryOpen 为真时提供；
+//   - School.noteFor(session)：主人亲手开口时，把返回的备注附进这一轮（标明不是主人说的话）；校园记忆关着时总是 null；
 //   - School.classPrompt()：上课会话的系统提示词（AI 的人设加"在学校"的说明）。
 import type { ThinkRequest } from './classroom.js'
 import type { Secrets, StudentRecord } from './students.js'

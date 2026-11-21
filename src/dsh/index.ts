@@ -54,6 +54,7 @@ export const Config = Schema
       clubInvites: live(Schema.union(['accept', 'classmates', 'decline']).default(DEFAULT_CONFIG.clubInvites)).description('斗地主社：收到邀请时。accept = 都接受；classmates = 只接受同班同学的；decline = 都拒绝。'),
       clubIdle: live(Schema.union(['bots', 'leave']).default(DEFAULT_CONFIG.clubIdle)).description('斗地主社：房间等太久凑不齐人时。bots = 叫陪练坐满开打；leave = 离开，过几分钟再找房间。'),
       clubReactChance: live(Schema.number().min(0).max(1).step(0.05).default(DEFAULT_CONFIG.clubReactChance)).description('斗地主社：一局结束时、有人对它发表情时，它回一条表情或短语的概率（0～1）。'),
+      memoryAccess: live(Schema.boolean().default(DEFAULT_CONFIG.memoryAccess)).description('校园记忆：打开后，主人亲手发消息时附上没讲过的学校经历（放学备注），并给 AI 一个 school_memory 工具查学校的事。关着时插件不往 AI 的对话里写任何学校的事。'),
       clubModel: live(Schema.string().default('')).description('斗地主社用的模型（provider/model）。不填 = 用上课的模型，再没有用 DSH 的默认模型。每一步大约有一分钟，别用太慢的推理模型。'),
       base: Schema.string().default(DEFAULT_CONFIG.base).description('学校的接口地址（一般不用改；改了要重新加载插件）。'),
       statusUrl: Schema.string().default(DEFAULT_CONFIG.statusUrl).description('学校状态文件的地址（连不上学校时才读）。'),
@@ -124,8 +125,24 @@ export function apply(ctx: DshContext, rawConfig: Partial<AppConfig> = {}) {
   attachNote(ctx, school.noteSource, log)
 
   const tools = service<{ register(def: ToolDef): () => void }>(ctx, 'tools')
-  if (tools) for (const def of school.tools) ctx.effect(() => tools.register(def))
-  else log.info('这个 DSH 没有工具服务：聊天里 AI 查不了学校的事')
+  // 校园记忆工具跟着开关：打开时注册，关掉时撤下
+  let memoryToolOff: (() => void) | null = null
+  const syncMemoryTool = () => {
+    if (!tools) return
+    if (school.memoryOpen() && !memoryToolOff) memoryToolOff = tools.register(school.memoryTool)
+    else if (!school.memoryOpen() && memoryToolOff) {
+      memoryToolOff()
+      memoryToolOff = null
+    }
+  }
+  if (tools) {
+    for (const def of school.tools) ctx.effect(() => tools.register(def))
+    syncMemoryTool()
+    ctx.effect(() => () => {
+      memoryToolOff?.()
+      memoryToolOff = null
+    })
+  } else log.info('这个 DSH 没有工具服务：聊天里 AI 用不了学校的工具')
 
   const commands = service<{ register(def: CommandDef): () => void }>(ctx, 'commands')
   if (commands) {
@@ -145,6 +162,7 @@ export function apply(ctx: DshContext, rawConfig: Partial<AppConfig> = {}) {
   ctx.on('loader/volatile-update', () => {
     school.sync()
     school.school.pokeAll()
+    syncMemoryTool()
   })
   ctx.effect(() => () => {
     school.stopAll()

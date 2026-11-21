@@ -58,6 +58,19 @@ const GROUPS: { title: string; note?: string; fields: Field[] }[] = [
     ],
   },
   {
+    title: '校园记忆',
+    note: '插件默认不往 AI 的对话和记忆里写任何学校的事。打开后，AI 才能知道自己在学校的经历。',
+    fields: [
+      {
+        key: 'memoryAccess',
+        label: '让 AI 记得学校的事',
+        help: '打开后：你亲手发消息时，附上一段还没讲过的学校经历（放学备注，每条只附一次）；AI 在任何会话里都能用 school_memory 工具查学校的事。',
+        when: `${NOW}：打开后从你的下一条消息起；关掉后工具马上撤下，已经附进对话的备注不会删掉`,
+        kind: 'switch',
+      },
+    ],
+  },
+  {
     title: '斗地主社',
     note: '入社用 /school club on，每个学生单独开。入社后课余会去打牌，每一步都调用一次模型，费用算在你的模型账户上。',
     fields: [
