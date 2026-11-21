@@ -261,6 +261,7 @@ export class Attendance {
         })
         this.link = link
         const end: LinkEnd = await link.ended
+        if (end.welcomed) failures = 0
         this.link = null
         // 插件已经停了（卸载、热重载）：不再写存档，免得把旧的状态写回去
         if (this.stopped) return

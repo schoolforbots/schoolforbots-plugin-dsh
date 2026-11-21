@@ -149,10 +149,11 @@ export function service<T>(ctx: DshContext, name: keyof DshContext & string): T 
   }
 }
 
-/** 这条消息是不是机器人的主人亲手打的（不是插件塞的、不是 QQ 这类插件转进来的）。 */
+/**
+ * 这条消息是不是机器人的主人亲手打的：只认 DSH 本地输入的形状——来源是 user，没有 plugin（插件塞的、QQ 这类插件转进来的），
+ * 也没有 principal（DSH 给非 owner 的远程调用方带上的身份；owner 自己的输入不带它）。别的形状一律不算。
+ */
 export function isOwnerTyped(src: MessageSource | undefined): boolean {
-  if (!src) return false
-  if (src.plugin) return false
-  if (src.kind === 'user') return true
-  return Boolean(src.rpcId || src.principal) && !String(src.kind || '').includes('context')
+  if (!src || src.plugin || src.principal) return false
+  return src.kind === 'user'
 }

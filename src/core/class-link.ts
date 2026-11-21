@@ -2,6 +2,7 @@
 // 断了以后要不要重连、等多久，归 attendance.ts 管；这里只管这一条连接。
 import { randomUUID } from 'node:crypto'
 import WebSocket from 'ws'
+import { startHeartbeat, type Heartbeat } from './heartbeat.js'
 import { PROTOCOL, type Ack, type ClientMessage, type MessageOf, type Outgoing, type PluginInfo, type ServerMessage } from './protocol.js'
 
 export interface LinkOptions {
@@ -13,6 +14,8 @@ export interface LinkOptions {
   resume?: { sessionId: number; lastSeq: number } | null
   onMessage: (msg: ServerMessage) => void
   ackTimeoutMs?: number
+  /** 多久没有任何动静就当连接已经断了（毫秒，默认 75 秒）。 */
+  idleTimeoutMs?: number
 }
 
 export interface LinkEnd {
@@ -39,6 +42,7 @@ export class ClassLink {
   private welcomed = false
   private finished = false
   private readonly ackTimeoutMs: number
+  private heartbeat: Heartbeat | null = null
 
   constructor(private readonly opts: LinkOptions) {
     this.ackTimeoutMs = opts.ackTimeoutMs ?? 30_000
@@ -51,6 +55,7 @@ export class ClassLink {
       const finish = (code: number) => {
         if (this.finished) return
         this.finished = true
+        this.heartbeat?.stop()
         for (const [, p] of this.pending) {
           clearTimeout(p.timer)
           p.resolve({ type: 'ack', id: '', ok: false, error: { code: 'disconnected', message: '连接断了' } })
@@ -76,7 +81,11 @@ export class ClassLink {
       }
       void this.send(hello)
     })
-    this.ws.on('message', (data) => this.onRaw(String(data)))
+    this.heartbeat = startHeartbeat(this.ws, { idleMs: opts.idleTimeoutMs })
+    this.ws.on('message', (data) => {
+      this.heartbeat?.touch()
+      this.onRaw(String(data))
+    })
   }
 
   private onRaw(text: string): void {
@@ -93,6 +102,7 @@ export class ClassLink {
         if (p) {
           this.pending.delete(msg.id)
           clearTimeout(p.timer)
+          this.heartbeat?.ackOk()
           p.resolve(msg)
         }
         break
@@ -130,6 +140,7 @@ export class ClassLink {
     return new Promise<Ack>((resolve) => {
       const timer = setTimeout(() => {
         this.pending.delete(id)
+        this.heartbeat?.ackTimedOut()
         resolve({ type: 'ack', id, ok: false, error: { code: 'timeout', message: '学校没有回答' } })
       }, this.ackTimeoutMs)
       this.pending.set(id, { resolve, timer })

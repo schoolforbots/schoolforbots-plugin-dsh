@@ -8,7 +8,9 @@
 // 输入怎么算：
 // - 机器人的主人亲手打的（isOwnerTyped）→ 这一轮是机器人的主人的；
 // - 别的"人"发来的（转发插件转进来的群聊消息、别的插件唤醒会话塞的消息）→ 不是；
-// - 插件附的快照（runtime-context、time-context、plugin:xxx 备注）不算人，不改变判断。
+// - 插件附的快照（form 是 snapshot：runtime-context、time-context、我们的放学备注）不算人，不改变判断；
+//   别的插件写进来、又不是快照的消息（比如转发插件的 plugin:qq-bridge）算"别人"。
+// - 一轮开始时没有可判定的输入：不是机器人的主人的轮次（默认拒绝，不沿用上一轮）。
 // 同一轮后面的步骤（模型调完工具再接着想）没有新的输入，沿用这一轮开头的判断。
 import { isOwnerTyped, type DshContext, type MessageSource, type PreStepDecision, type PreStepPayload } from './host.js'
 
@@ -16,8 +18,8 @@ import { isOwnerTyped, type DshContext, type MessageSource, type PreStepDecision
 export function fromPerson(src: MessageSource | undefined): boolean {
   if (!src) return false
   const kind = String(src.kind ?? '')
-  if (kind.startsWith('plugin:') || kind.includes('context') || kind === 'schoolforbots') return false
   if ((src as { form?: unknown }).form === 'snapshot') return false
+  if (kind.includes('context') || kind === 'schoolforbots' || kind === 'plugin:schoolforbots') return false
   return true
 }
 
@@ -41,10 +43,9 @@ export function createOwnerTurns() {
         // 排队的几条里只要有一条不是机器人的主人亲手打的，这一轮就不算
         pending.set(sid, (pending.get(sid) ?? true) && v)
       } else if (event.type === 'turn/start') {
-        if (pending.has(sid)) {
-          owner.set(sid, pending.get(sid)!)
-          pending.delete(sid)
-        }
+        // 这一轮没有可判定的人类输入（比如只有插件塞进来的快照）：默认不是机器人的主人的轮次
+        owner.set(sid, pending.get(sid) ?? false)
+        pending.delete(sid)
       }
     },
     /** 记下这一步的输入；没有人发的输入（同一轮的后续步骤）就不改。 */

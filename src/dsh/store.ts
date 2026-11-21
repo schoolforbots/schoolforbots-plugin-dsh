@@ -22,10 +22,29 @@ export function stateDir(): string {
   return join(dshHome(), 'schoolforbots')
 }
 
-function readJson<T>(file: string, fallback: T): T {
+/**
+ * 读一个 JSON 存档。只有文件不存在才用 fallback；内容坏了（解析失败）先把原文件改名成 `*.corrupt-<时间>` 留着，
+ * 再用 fallback；别的读错误（比如 Windows 上被杀毒软件短暂占用的 EBUSY）直接抛出——绝不能拿空档当真，
+ * 下次保存就把真实的学生档案和钥匙覆盖掉了。
+ */
+export function readJson<T>(file: string, fallback: T, log?: Pick<Logger, 'warn'>): T {
+  let text: string
   try {
-    return JSON.parse(readFileSync(file, 'utf8')) as T
+    text = readFileSync(file, 'utf8')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return fallback
+    throw new Error(`读不了 ${file}（${(error as NodeJS.ErrnoException)?.code ?? (error as Error)?.message}），为了不覆盖它，插件先不启动`)
+  }
+  try {
+    return JSON.parse(text) as T
   } catch {
+    const kept = `${file}.corrupt-${new Date().toISOString().replace(/[:.]/g, '-')}`
+    try {
+      renameSync(file, kept)
+    } catch {
+      throw new Error(`${file} 的内容坏了，也没法改名备份；为了不覆盖它，插件先不启动`)
+    }
+    log?.warn(`${file} 的内容坏了，原文件改名成了 ${kept}，从空档开始`)
     return fallback
   }
 }
@@ -76,7 +95,7 @@ export function createStore(dir = stateDir(), log?: Logger): Store {
   if (existing) return existing
   mkdirSync(dir, { recursive: true })
   const file = join(dir, 'state.json')
-  const state = readJson<PluginState>(file, { version: 1, students: [] })
+  const state = readJson<PluginState>(file, { version: 1, students: [] }, log)
   if (!Array.isArray(state.students)) state.students = []
   for (const s of state.students) normalizeStudent(s)
   const store: Store = { dir, state, save: () => void writeJson(file, state, log) }
