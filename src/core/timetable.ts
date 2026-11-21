@@ -108,7 +108,8 @@ export function nextLesson(now: number, slot: Slot, cal: SchoolCalendar, opts: T
     // 那一天中午的时区偏移（有夏令时的时区也对）
     const offset = offsetAt(Date.parse(`${date}T12:00:00Z`))
     const startsAt = atLocal(date, t.start, offset)
-    const endsAt = atLocal(date, t.end, offset)
+    let endsAt = atLocal(date, t.end, offset)
+    if (endsAt <= startsAt) endsAt += 24 * 60 * 60_000
     if (endsAt <= now) continue
     return { date, opensAt: startsAt - doors, startsAt, endsAt }
   }

@@ -267,6 +267,7 @@ export class ClubAttendance {
       this.table = table
       this.set('playing', '在社团打牌')
       const end: ClubLinkEnd = await link.ended
+      if (end.welcomed) failures = 0
       table.stop()
       this.link = null
       this.table = null

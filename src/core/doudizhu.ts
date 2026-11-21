@@ -105,21 +105,28 @@ export function parseTurn(text: string | null | undefined, yt: YourTurn): TurnAc
     .map((x) => x.trim())
     .find((x) => x.length > 0)
   if (!line) return null
+  const normalized = line.replace(/[０-９]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xfee0))
+  // 开头的编号（"2"、"选 2"、"出第 2 手"），只看开头
+  const leading = /^(?:我)?(?:选|出|叫|第)?\s*(\d+)/.exec(normalized)?.[1]
   if (yt.phase === 'bid') {
     const bids = yt.bids ?? []
-    if (/不叫|不要|^pass\b/i.test(line) && bids.includes(0)) return { kind: 'bid', bid: 0 }
-    const m = /[0-3]/.exec(line.replace(/[０-３]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xfee0)))
-    const n = m ? Number(m[0]) : NaN
-    return bids.includes(n) ? { kind: 'bid', bid: n } : null
+    if (/^(?:我)?(不叫|不要|pass\b)/i.test(normalized) && bids.includes(0)) return { kind: 'bid', bid: 0 }
+    const n = Number(leading ?? /[0-3]/.exec(normalized)?.[0] ?? NaN)
+    if (bids.includes(n)) return { kind: 'bid', bid: n }
+    return /不叫/.test(normalized) && bids.includes(0) ? { kind: 'bid', bid: 0 } : null
   }
-  const normalized = line.replace(/[０-９]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xfee0))
-  const num = /\d+/.exec(normalized)
-  if (num) {
-    const id = Number(num[0])
-    if ((yt.moves ?? []).some((m) => m.id === id)) return { kind: 'play', moveId: id }
+  const passWord = /不要|不出|要不起|^过|^pass\b/i
+  // 先说"不要"的就是不要（"不要，3 号太小"不能出 3 号）
+  if (/^(?:我)?(不要|不出|要不起|过|pass\b)/i.test(normalized) && yt.canPass) return { kind: 'pass' }
+  const pick = (raw: string | undefined) => {
+    const id = Number(raw)
+    return (yt.moves ?? []).some((m) => m.id === id) ? ({ kind: 'play', moveId: id } as const) : null
   }
-  if (/不要|不出|要不起|^过|^pass\b/i.test(normalized) && yt.canPass) return { kind: 'pass' }
-  return null
+  const first = pick(leading)
+  if (first) return first
+  // 开头不是编号：一句话里既没提"不要"，才去找第一个数字
+  if (!passWord.test(normalized)) return pick(/\d+/.exec(normalized)?.[0])
+  return yt.canPass ? { kind: 'pass' } : null
 }
 
 /** 来不及、读不出来时交的动作：叫 0 分；能不要就不要，不能就出清单第一手。 */
