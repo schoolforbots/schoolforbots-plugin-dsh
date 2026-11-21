@@ -4,7 +4,7 @@
 //   默认的 next() 会在最后追加一条 runtime-context 快照（appendRuntimeContext 打开时）
 // - followup 是异步的：慢模式下回答要等 delayMs；cancel 以后，被取消的那一轮晚一点才写 turn/end（reason aborted），
 //   它原来要说的话也可能晚到（lateReply）。
-import type { Agent, CommandDef, DshContext, PreStepDecision, PreStepPayload, ToolDef, UserMessage } from '../src/dsh/host.js'
+import type { Agent, CommandDef, ToolRegistrationOptions, DshContext, PreStepDecision, PreStepPayload, ToolDef, UserMessage } from '../src/dsh/host.js'
 
 export interface FakeSession {
   preset?: string
@@ -20,6 +20,8 @@ export interface FakeDsh {
   ctx: DshContext
   variables: Map<string, () => string>
   tools: Map<string, ToolDef>
+  /** 注册工具时带的条件（when）。 */
+  toolOptions: Map<string, ToolRegistrationOptions>
   commands: Map<string, CommandDef>
   sessions: Map<string, FakeSession>
   reply: (text: string, sid: string) => string
@@ -51,6 +53,7 @@ export function createFakeDsh(): FakeDsh {
   const disposers: (() => unknown)[] = []
   const variables = new Map<string, () => string>()
   const tools = new Map<string, ToolDef>()
+  const toolOptions = new Map<string, ToolRegistrationOptions>()
   const commands = new Map<string, CommandDef>()
   const sessions: FakeDsh['sessions'] = new Map()
   const workspaces: { id: string; path: string; title?: string }[] = []
@@ -134,7 +137,7 @@ export function createFakeDsh(): FakeDsh {
     logger: () => ({ info: () => {}, warn: () => {}, debug: () => {} }),
     agents: { get: (id) => agents.get(id) },
     systemPrompt: { variable: (name, fn) => (variables.set(name, fn), () => variables.delete(name)) },
-    tools: { register: (def) => (tools.set(def.name, def), () => tools.delete(def.name)) },
+    tools: { register: (def, options) => (tools.set(def.name, def), toolOptions.set(def.name, options ?? {}), () => (tools.delete(def.name), toolOptions.delete(def.name))) },
     commands: { register: (def) => (commands.set(def.name, def), () => commands.delete(def.name)) },
     workspaceRegistry: {
       list: () => workspaces as never,
@@ -162,6 +165,7 @@ export function createFakeDsh(): FakeDsh {
     ctx,
     variables,
     tools,
+    toolOptions,
     commands,
     sessions,
     reply: () => '好的',

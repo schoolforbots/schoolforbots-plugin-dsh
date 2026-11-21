@@ -84,7 +84,7 @@ describe('/school club', () => {
         store,
         log,
       },
-      { ...DEFAULT_SCHOOL_CONFIG, base: school.base, enabled: false, memoryAccess: true },
+      { ...DEFAULT_SCHOOL_CONFIG, base: school.base, enabled: false, memoryAccess: true, memoryNote: true },
       { type: 'dsh', version: 'test' },
     )
     return { s, school }

@@ -59,8 +59,10 @@ export interface SchoolConfig {
   clubInvites: InvitePolicy
   clubIdle: IdlePolicy
   clubReactChance: number
-  /** 校园记忆：开着才给 AI 附放学备注、才提供 school_memory 工具。默认关。 */
+  /** 校园记忆工具：开着时提供 school_memory，AI 自己按需查。默认开：只是能查，插件不主动写。 */
   memoryAccess: boolean
+  /** 放学备注：开着时，主人亲手发消息时插件主动附上没讲过的学校经历。默认关。 */
+  memoryNote: boolean
 }
 
 export const DEFAULT_SCHOOL_CONFIG: SchoolConfig = {
@@ -80,7 +82,8 @@ export const DEFAULT_SCHOOL_CONFIG: SchoolConfig = {
   clubInvites: DEFAULT_CLUB_SETTINGS.invites,
   clubIdle: DEFAULT_CLUB_SETTINGS.idle,
   clubReactChance: DEFAULT_CLUB_SETTINGS.reactChance,
-  memoryAccess: false,
+  memoryAccess: true,
+  memoryNote: false,
 }
 
 /** 主人操作的结果：文字直接给主人看。 */
@@ -342,16 +345,21 @@ export class School {
     return this.studentAtHome(home) ?? (this.students.length === 1 ? this.students[0]! : null)
   }
 
-  /** 校园记忆开关：开着才给 AI 附放学备注、才提供 school_memory。插件不主动往 AI 的记忆和对话里写东西。 */
+  /** 校园记忆工具开着：AI 能用 school_memory 查学校的事。 */
   get memoryOpen(): boolean {
     return !!this.cfg.memoryAccess
   }
 
-  // ---------- 放学备注（校园记忆开关开着时） ----------
+  /** 放学备注开着：插件主动把没讲过的学校经历附进主人的对话。默认关（插件默认不主动往对话里写东西）。 */
+  get noteOpen(): boolean {
+    return !!this.cfg.memoryNote
+  }
+
+  // ---------- 放学备注（放学备注开关开着时） ----------
 
   /** 主人开口时附的备注；开关关着、没有新东西、认不出是哪个学生，都返回 null。 */
   noteFor(session: string): { text: string; delivered: () => void } | null {
-    if (!this.memoryOpen) return null
+    if (!this.noteOpen) return null
     const s = this.pickForOwner(session)
     if (!s || s.studentId === null) return null
     const text = schoolNote(s.diary, displayNameOf(s))
@@ -575,7 +583,7 @@ export class School {
           if (ctx.isSchoolSession?.(home)) return fail('这是插件自己的上课会话，不能当 AI 的家。')
           s.binding.home = home
           this.save()
-          return ok(`好了：这个会话指定给「${displayNameOf(s)}」。在这里，学校的工具不用说明是哪个学生${this.memoryOpen ? '，放学备注也附这个学生的' : ''}。`)
+          return ok(`好了：这个会话指定给「${displayNameOf(s)}」。在这里，学校的工具不用说明是哪个学生${this.noteOpen ? '，放学备注也附这个学生的' : ''}。`)
         }
         case 'persona': {
           const s = target()

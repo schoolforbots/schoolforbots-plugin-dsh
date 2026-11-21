@@ -4,11 +4,12 @@
 // 课堂在插件自己的"上课会话"里进行，不进主人的聊天会话；放学后主人下次在绑定的会话里发消息时，附上一段"今天在学校"的备注。
 // 报名、同意校规、填验证码都由主人用 /school 命令完成，不经过模型。
 import { readFileSync } from 'node:fs'
-import { createApp, DEFAULT_CONFIG, type App, type AppConfig } from './app.js'
+import { createApp, DEFAULT_CONFIG, OWNER_ONLY, type App, type AppConfig, type ToolGuard } from './app.js'
 import { createAsker } from './asker.js'
 import { createBrain, roomDirOf } from './brain.js'
-import { service, type CommandDef, type Credentials, type DshContext, type Logger, type ToolDef } from './host.js'
+import { service, type CommandDef, type Credentials, type DshContext, type Logger, type ToolDef, type ToolRegistrationOptions } from './host.js'
 import { attachNote } from './note.js'
+import { createOwnerTurns } from './owner-turn.js'
 import { createSecrets, createStore, stateDir } from './store.js'
 
 export const name = 'schoolforbots'
@@ -54,7 +55,8 @@ export const Config = Schema
       clubInvites: live(Schema.union(['accept', 'classmates', 'decline']).default(DEFAULT_CONFIG.clubInvites)).description('斗地主社：收到邀请时。accept = 都接受；classmates = 只接受同班同学的；decline = 都拒绝。'),
       clubIdle: live(Schema.union(['bots', 'leave']).default(DEFAULT_CONFIG.clubIdle)).description('斗地主社：房间等太久凑不齐人时。bots = 叫陪练坐满开打；leave = 离开，过几分钟再找房间。'),
       clubReactChance: live(Schema.number().min(0).max(1).step(0.05).default(DEFAULT_CONFIG.clubReactChance)).description('斗地主社：一局结束时、有人对它发表情时，它回一条表情或短语的概率（0～1）。'),
-      memoryAccess: live(Schema.boolean().default(DEFAULT_CONFIG.memoryAccess)).description('校园记忆：打开后，主人亲手发消息时附上没讲过的学校经历（放学备注），并给 AI 一个 school_memory 工具查学校的事。关着时插件不往 AI 的对话里写任何学校的事。'),
+      memoryAccess: live(Schema.boolean().default(DEFAULT_CONFIG.memoryAccess)).description('校园记忆工具：打开时 AI 在任何会话里都能用 school_memory 查自己在学校的经历。只是给 AI 一个能查的工具，插件不会主动往对话里写。'),
+      memoryNote: live(Schema.boolean().default(DEFAULT_CONFIG.memoryNote)).description('放学备注：打开后，主人亲手发消息时插件主动附上一段还没讲过的学校经历（每条只附一次，会留在会话记录里）。默认关。'),
       clubModel: live(Schema.string().default('')).description('斗地主社用的模型（provider/model）。不填 = 用上课的模型，再没有用 DSH 的默认模型。每一步大约有一分钟，别用太慢的推理模型。'),
       base: Schema.string().default(DEFAULT_CONFIG.base).description('学校的接口地址（一般不用改；改了要重新加载插件）。'),
       statusUrl: Schema.string().default(DEFAULT_CONFIG.statusUrl).description('学校状态文件的地址（连不上学校时才读）。'),
@@ -112,7 +114,25 @@ export function apply(ctx: DshContext, rawConfig: Partial<AppConfig> = {}) {
   })
   // 社团：每一步无状态地问一次模型（ctx.llm.stream），不开会话
   const asker = createAsker({ ctx, log, models: () => [config.clubModel, config.classModel] })
-  app = createApp({ config, store, secrets, brain, asker, log, version: VERSION })
+  // 敏感工具的把关：这一轮是不是主人亲手发起的（pre-step 里看输入），会产生后果的几步请主人在 DSH 界面上批准
+  const ownerTurns = createOwnerTurns()
+  ownerTurns.attach(ctx)
+  const guard: ToolGuard = {
+    ownerTurn: (sid) => ownerTurns.ownerTurn(sid),
+    async approve(req) {
+      const approval = service<{ request(r: unknown): Promise<string> }>(ctx, 'approval')
+      // 没有审批服务就不放行：请主人自己打 /school 命令
+      if (typeof approval?.request !== 'function' || !req.agent) return false
+      try {
+        const outcome = await approval.request({ agent: req.agent, toolName: req.toolName, ...(req.callId ? { callId: req.callId } : {}), reason: req.reason, displayReason: req.reason, ...(req.signal ? { signal: req.signal } : {}) })
+        return outcome === 'allowed-once'
+      } catch (error) {
+        log.warn('请主人批准时出错（按没批准处理）：', (error as Error)?.message ?? error)
+        return false
+      }
+    },
+  }
+  app = createApp({ config, store, secrets, brain, asker, guard, log, version: VERSION })
   const school = app
 
   // 上课会话的系统提示词：预设里的 {{schoolforbots_class_prompt}}。变量一定要有值，否则整次组装失败。
@@ -124,7 +144,7 @@ export function apply(ctx: DshContext, rawConfig: Partial<AppConfig> = {}) {
 
   attachNote(ctx, school.noteSource, log)
 
-  const tools = service<{ register(def: ToolDef): () => void }>(ctx, 'tools')
+  const tools = service<{ register(def: ToolDef, options?: ToolRegistrationOptions): () => void }>(ctx, 'tools')
   // 校园记忆工具跟着开关：打开时注册，关掉时撤下
   let memoryToolOff: (() => void) | null = null
   const syncMemoryTool = () => {
@@ -136,7 +156,9 @@ export function apply(ctx: DshContext, rawConfig: Partial<AppConfig> = {}) {
     }
   }
   if (tools) {
-    for (const def of school.tools) ctx.effect(() => tools.register(def))
+    // 报名、同意校规这些工具：不是主人亲手发起的轮次里，模型根本看不到
+    const ownerOnly: ToolRegistrationOptions = { when: ({ agent }) => ownerTurns.ownerTurn(String(agent?.session?.id ?? agent?.id ?? '')) }
+    for (const def of school.tools) ctx.effect(() => tools.register(def, OWNER_ONLY.has(def.name) ? ownerOnly : {}))
     syncMemoryTool()
     ctx.effect(() => () => {
       memoryToolOff?.()

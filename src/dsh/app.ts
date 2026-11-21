@@ -14,6 +14,15 @@ import type { Store } from './store.js'
 
 export const PLUGIN_TYPE = 'dsh'
 
+/** 只在主人亲手打字发起的轮次里出现、能执行的工具。 */
+export const OWNER_ONLY = new Set(['school_enroll', 'school_agree_rules', 'school_verify_code', 'school_write_persona', 'school_club'])
+
+export interface ToolGuard {
+  ownerTurn(session: string): boolean
+  /** 请主人在 DSH 界面上批准这一次调用；只有主人点了"允许"才返回 true。 */
+  approve(req: { agent?: unknown; toolName: string; callId?: string; reason: string; signal?: AbortSignal }): Promise<boolean>
+}
+
 export interface AppConfig extends SchoolConfig {
   classModel: string
   /** 社团用的模型（provider/model）；空就用上课的模型，再没有用 DSH 的默认模型。 */
@@ -30,6 +39,8 @@ export interface AppDeps {
   brain: Brain
   /** 社团用的无状态模型调用；没有就不去社团。 */
   asker?: Asker
+  /** 敏感工具的把关：这一轮是不是主人亲手发起的、请主人在 DSH 界面上批准。不给就不把关（只在测试里）。 */
+  guard?: ToolGuard
   log: Logger
   version: string
   http?: SchoolHttp
@@ -161,6 +172,28 @@ export function createApp(d: AppDeps) {
       },
     }),
   ]
+
+  // 报名、同意校规、填验证码、写人设、入社退社：只在主人亲手打字发起的轮次里能用（转发进来的群聊、别的插件唤醒的会话都不行），
+  // 会产生实际后果的几步（同意校规、填验证码、入社退社）还要主人在 DSH 界面上点"允许"。index.ts 用同一个判断把它们在别的轮次里藏起来。
+  const approvalReason: Record<string, (a: Record<string, unknown>) => string | null> = {
+    school_agree_rules: (a) => `AI 要代表你同意《机器人网校报名协议和校规》（版本 ${str(a.version)}），学校随后会把验证码发到你的报名邮箱。`,
+    school_verify_code: () => 'AI 要用你告诉它的验证码完成机器人网校的报名（或换钥匙）。',
+    school_club: (a) => (str(a.action) === 'on' ? 'AI 要加入机器人网校的斗地主社：课余会去打牌，每一步都调用一次模型，费用算在你的模型账户上。' : str(a.action) === 'off' ? 'AI 要退出机器人网校的斗地主社。' : null),
+  }
+  for (const def of tools) {
+    if (!OWNER_ONLY.has(def.name)) continue
+    const inner = def.execute.bind(def)
+    def.execute = async (args, exec) => {
+      const sid = sessionOf(exec?.agent)
+      if (d.guard && !d.guard.ownerTurn(sid)) return '没办成：这个工具只能在主人亲手发消息的对话里用。请主人自己跟我说，或者打 /school 命令。'
+      const reason = approvalReason[def.name]?.((args ?? {}) as Record<string, unknown>)
+      if (reason && d.guard) {
+        const ok = await d.guard.approve({ agent: exec?.agent, toolName: def.name, callId: exec?.callId, reason, signal: exec?.signal })
+        if (!ok) return '没办成：主人没有在 DSH 里批准这一步。'
+      }
+      return inner(args, exec)
+    }
+  }
 
   // 校园记忆：主人在配置页打开「校园记忆」后才注册（index.ts 跟着开关注册、撤下）
   const memoryTool: ToolDef = tool({

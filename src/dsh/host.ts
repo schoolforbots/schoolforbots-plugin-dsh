@@ -80,7 +80,12 @@ export interface ToolDef {
   output: { schema: Record<string, unknown>; render: (args: unknown, value: unknown) => TextBlock[] }
   timeoutMs?: number
   isConcurrencySafe?: () => boolean
-  execute(args: unknown, exec: { agent?: Agent }): Promise<unknown>
+  execute(args: unknown, exec: { agent?: Agent; callId?: string; signal?: AbortSignal }): Promise<unknown>
+}
+
+/** 工具的按步启用条件：返回 false 时这一步的模型看不到、也调不了这个工具。 */
+export interface ToolRegistrationOptions {
+  when?: (context: { agent: Agent; signal?: AbortSignal }) => boolean | Promise<boolean>
 }
 
 export interface CommandInvocation {
@@ -121,10 +126,11 @@ export interface DshContext {
   workspaceRegistry?: WorkspaceRegistry
   agents?: { get?(id: string): Agent | undefined }
   systemPrompt?: { variable(name: string, fn: () => string): () => void }
-  tools?: { register(def: ToolDef): () => void }
+  tools?: { register(def: ToolDef, options?: ToolRegistrationOptions): () => void }
   commands?: { register(def: CommandDef): () => void }
   credentials?: Credentials
   llm?: unknown
+  approval?: unknown
   agentDefaultModel?: unknown
 }
 

@@ -29,7 +29,7 @@ afterEach(async () => {
   rmSync(dir, { recursive: true, force: true })
 })
 
-function setup(opts: { credentials?: () => Credentials | undefined; memory?: boolean } = {}) {
+function setup(opts: { credentials?: () => Credentials | undefined; memory?: boolean; note?: boolean } = {}) {
   const store = createStore(dir)
   const secrets = createSecrets(opts.credentials ?? (() => undefined), dir)
   const troubles: string[] = []
@@ -37,7 +37,7 @@ function setup(opts: { credentials?: () => Credentials | undefined; memory?: boo
   dsh.ctx.on('session/event', (s: never, e: never) => brain.onSessionEvent(s, e))
   brain.attach(dsh.ctx)
   // 只测命令和会话，不让上学循环真的跑起来
-  const app = createApp({ config: { ...DEFAULT_CONFIG, base: school.base, enabled: false, memoryAccess: !!opts.memory }, store, secrets, brain, log, version: 'test' })
+  const app = createApp({ config: { ...DEFAULT_CONFIG, base: school.base, enabled: false, memoryAccess: opts.memory ?? true, memoryNote: !!opts.note }, store, secrets, brain, log, version: 'test' })
   attachNote(dsh.ctx, app.noteSource, log)
   const run = (input: string, sid = 'home') => app.command({ rawInput: input, agent: { id: sid, session: { id: sid }, followup: () => {} } })
   const exec = (sid: string) => ({ agent: { id: sid, session: { id: sid }, followup: () => {} } })
@@ -265,7 +265,7 @@ describe('class sessions', () => {
 })
 
 describe('the after-school note', () => {
-  it('writes nothing into the conversation while school memory is off', async () => {
+  it('writes nothing into the conversation unless the after-school note is switched on', async () => {
     const { store, run } = setup()
     await enroll(run)
     store.state.students[0]!.diary.summaries.push(summary())
@@ -273,7 +273,7 @@ describe('the after-school note', () => {
   })
 
   it('adds the note once in any session the owner types in, under the plugin source kind, even with runtime-context last', async () => {
-    const { store, run } = setup({ memory: true })
+    const { store, run } = setup({ note: true })
     await enroll(run)
     store.state.students[0]!.diary.summaries.push(summary())
     // QQ 插件转进来的话不算主人亲口说的
@@ -293,7 +293,7 @@ describe('the after-school note', () => {
   })
 
   it('passes on what the owner must hear: blocked lines, being replaced', async () => {
-    const { store, app, run } = setup({ memory: true })
+    const { store, app, run } = setup({ note: true })
     await enroll(run)
     const s = store.state.students[0]!
     app.school.trouble(s.aiId, '课上有一句话被老师拦下了：……')
@@ -334,7 +334,7 @@ describe('the student tools', () => {
   })
 
   it('school_memory answers only with school memory on, leaves classmates\' words out and fences the record', async () => {
-    const closed = setup()
+    const closed = setup({ memory: false })
     await enroll(closed.run)
     closed.store.state.students[0]!.diary.summaries.push(summary())
     expect(String(await closed.app.memoryTool.execute({}, closed.exec('chat-1')))).toContain('没有打开')
