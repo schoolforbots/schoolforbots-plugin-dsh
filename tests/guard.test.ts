@@ -39,6 +39,42 @@ describe('owner turns', () => {
   })
 })
 
+describe('owner turns from session events', () => {
+  const spliced = (...sources: object[]) => ({ type: 'agent/inbox/spliced', data: { target: 'next-turn', start: 0, inserted: sources.map((source) => ({ role: 'user', content: [], source })) } })
+  const consumed = { type: 'agent/inbox/spliced', data: { target: 'next-turn', start: 0, removedCount: 1, inserted: [] } }
+  const turnStart = { type: 'turn/start', data: { turn: 1 } }
+
+  it('decides a turn when it starts, from what was queued for it, before any step runs', () => {
+    const t = createOwnerTurns()
+    t.onSessionEvent('s', spliced(owner))
+    expect(t.ownerTurn('s')).toBe(false) // 还没开始
+    t.onSessionEvent('s', turnStart)
+    t.onSessionEvent('s', consumed)
+    expect(t.ownerTurn('s')).toBe(true)
+  })
+
+  it('does not let a message queued during a turn change that turn, and counts a mixed queue as not the owner\'s', () => {
+    const t = createOwnerTurns()
+    t.onSessionEvent('s', spliced(bridged))
+    t.onSessionEvent('s', turnStart)
+    expect(t.ownerTurn('s')).toBe(false)
+    // 群聊那一轮还在进行，主人插了一句：这一轮还是群聊的
+    t.onSessionEvent('s', spliced(owner))
+    expect(t.ownerTurn('s')).toBe(false)
+    t.onSessionEvent('s', turnStart)
+    expect(t.ownerTurn('s')).toBe(true)
+    // 下一轮排进来主人的话和群里的话
+    t.onSessionEvent('s', spliced(owner))
+    t.onSessionEvent('s', spliced(bridged))
+    t.onSessionEvent('s', turnStart)
+    expect(t.ownerTurn('s')).toBe(false)
+    // 插件附的快照不算人
+    t.onSessionEvent('s', spliced(owner, snapshot))
+    t.onSessionEvent('s', turnStart)
+    expect(t.ownerTurn('s')).toBe(true)
+  })
+})
+
 describe('guarded tools', () => {
   let dir: string
   let school: MockSchool
