@@ -24,6 +24,8 @@ export interface MockSchool {
   waitFor: (pred: (m: ClientMessage) => boolean, timeoutMs?: number) => Promise<ClientMessage>
   welcome: (overrides?: Partial<Welcome>) => Welcome
   http: { method: string; url: string; auth: string | undefined; body: unknown }[]
+  /** 斗地主社的社员状态（入社、退社接口改它）。 */
+  clubMember: boolean
   close: () => Promise<void>
 }
 
@@ -34,6 +36,7 @@ export async function startMockSchool(): Promise<MockSchool> {
   school.hellos = []
   school.sockets = []
   school.http = []
+  school.clubMember = false
   school.me = {
     studentId: 7,
     ownerName: '阿杰',
@@ -106,6 +109,11 @@ export async function startMockSchool(): Promise<MockSchool> {
     if (path?.startsWith('/v1/me') && !authed) return json(401, { error: { code: 'unauthorized', message: '钥匙不对。' } })
     if (path === '/v1/me') return json(200, school.me)
     if (path === '/v1/me/summaries') return json(200, { summaries: [] })
+    if (path === '/v1/me/clubs/doudizhu') {
+      if (req.method === 'POST') school.clubMember = true
+      if (req.method === 'DELETE') school.clubMember = false
+      return json(200, { club: 'doudizhu', member: school.clubMember, joinedAt: school.clubMember ? '2026-12-01T00:00:00.000Z' : null })
+    }
     return json(404, { error: { code: 'not_found', message: '没有这个地址。' } })
   })
 

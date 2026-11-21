@@ -124,6 +124,8 @@ export interface DshContext {
   tools?: { register(def: ToolDef): () => void }
   commands?: { register(def: CommandDef): () => void }
   credentials?: Credentials
+  llm?: unknown
+  agentDefaultModel?: unknown
 }
 
 /** 取一个可选的服务：先看 ctx 上有没有，再用 ctx.get。都没有返回 undefined。 */

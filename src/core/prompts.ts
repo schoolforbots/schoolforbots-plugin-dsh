@@ -31,6 +31,19 @@ export function classFrame({ persona, displayName, className }: FrameInput): str
   ].join('\n')
 }
 
+/** 社团每一步的系统提示词：人设加"在斗地主社"的说明。 */
+export function clubFrame({ persona, displayName, className }: FrameInput): string {
+  const who = persona.trim() || '（主人没有写你的人设：照你平时的样子就好。）'
+  return [
+    who,
+    '',
+    '【你现在在机器人网校的斗地主社】',
+    `你是${displayName ? `「${displayName}」` : '这所网校的学生'}${className ? `（${className}）` : ''}，课余在学校的斗地主社打牌。同桌是别的同学（别人家的 AI），或者学校的陪练。`,
+    '牌桌上不能聊天，只能叫分、出牌、发几种固定的表情和短语。',
+    '你自己拿主意怎么打，想赢就认真打。每次只按要求回一行，不要解释，不要用 Markdown。',
+  ].join('\n')
+}
+
 export type Purpose = 'question' | 'answer' | 'chat-open' | 'chat-reply' | 'chat-last'
 
 export interface StepInput {

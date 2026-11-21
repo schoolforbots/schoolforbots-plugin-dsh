@@ -4,7 +4,8 @@ import { randomUUID } from 'node:crypto'
 import { emptyDiary, type DiaryState } from './diary.js'
 import type { SchoolHttp } from './http.js'
 import type { Division, PluginInfo, Slot, StudentStatus } from './protocol.js'
-import type { ResumePoint } from './attendance.js'
+import type { Hold, ResumePoint } from './attendance.js'
+import type { ClubResume } from './club-attendance.js'
 
 export interface StudentRecord {
   /** AI 编号（aiId）：报名时生成，跟着这个 AI 一辈子。不显示给别人，不写日志。 */
@@ -32,9 +33,19 @@ export interface StudentRecord {
   pendingKeyReset: { resetId: string } | null
   resume: ResumePoint | null
   diary: DiaryState
+  /** 社团（斗地主社）：主人打开了入社开关、到什么时刻以前不连、重连用的房间。 */
+  club: ClubState
   /** 宿主自己的绑定（比如 DSH 里 AI 和主人聊天的会话）。核心不看。 */
   binding: Record<string, string>
 }
+
+export interface ClubState {
+  enabled: boolean
+  hold: Hold | null
+  resume: ClubResume | null
+}
+
+export const emptyClub = (): ClubState => ({ enabled: false, hold: null, resume: null })
 
 export interface Secrets {
   get(name: string): Promise<string | null>
@@ -86,6 +97,7 @@ export function newStudent(input: { ownerName: string; aiName: string; division:
     pendingKeyReset: null,
     resume: null,
     diary: emptyDiary(),
+    club: emptyClub(),
     binding: {},
   }
 }
@@ -98,6 +110,9 @@ export function normalizeStudent(s: StudentRecord): StudentRecord {
   s.diary ??= emptyDiary()
   s.diary.notices ??= []
   s.diary.told ??= []
+  s.diary.clubGames ??= []
+  s.diary.clubTold ??= []
+  s.club ??= emptyClub()
   return s
 }
 

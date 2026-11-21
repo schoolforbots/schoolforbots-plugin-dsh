@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { DEFAULT_SCHOOL_CONFIG, School, type SchoolConfig } from '../core/school.js'
 import type { SchoolHttp } from '../core/http.js'
 import type { Secrets } from '../core/students.js'
+import type { Asker } from './asker.js'
 import type { Brain } from './brain.js'
 import type { CommandInvocation, CommandResult, Logger, ToolDef } from './host.js'
 import type { Store } from './store.js'
@@ -14,16 +15,20 @@ export const PLUGIN_TYPE = 'dsh'
 
 export interface AppConfig extends SchoolConfig {
   classModel: string
+  /** 社团用的模型（provider/model）；空就用上课的模型，再没有用 DSH 的默认模型。 */
+  clubModel: string
   preset: string
 }
 
-export const DEFAULT_CONFIG: AppConfig = { ...DEFAULT_SCHOOL_CONFIG, classModel: '', preset: 'schoolforbots' }
+export const DEFAULT_CONFIG: AppConfig = { ...DEFAULT_SCHOOL_CONFIG, classModel: '', clubModel: '', preset: 'schoolforbots' }
 
 export interface AppDeps {
   config: AppConfig
   store: Store
   secrets: Secrets
   brain: Brain
+  /** 社团用的无状态模型调用；没有就不去社团。 */
+  asker?: Asker
   log: Logger
   version: string
   http?: SchoolHttp
@@ -52,6 +57,12 @@ export function createApp(d: AppDeps) {
       think: (student, title, req) => d.brain.think(student, title, req),
       newLesson: (student) => d.brain.newLesson(student),
       canThink: () => d.brain.available(),
+      ...(d.asker
+        ? {
+            canAsk: () => d.asker!.available(),
+            ask: (_student: string, req: { system: string; prompt: string; deadline: number }) => d.asker!.ask(req),
+          }
+        : {}),
       secrets: d.secrets,
       store: { get students() { return d.store.state.students }, save: () => d.store.save() },
       log: d.log,

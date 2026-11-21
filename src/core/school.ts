@@ -8,11 +8,14 @@
 //   两者都只在 AI 的"家"（主人绑定的聊天会话）里有效。
 // - 给 AI 看的内容里不放同学的原话；学校写的内容放进围栏。
 import { Attendance, type AttendanceStatus } from './attendance.js'
+import { ClubAttendance, type ClubStatus } from './club-attendance.js'
+import { DEFAULT_CLUB_SETTINGS, type IdlePolicy, type InvitePolicy, type JoinMode } from './club-table.js'
 import { DEFAULT_CLASS_SETTINGS } from './classroom.js'
-import { addNotice, addSummary, markTold, schoolMemory, schoolNote, schoolReport, untold, untoldNotices } from './diary.js'
+import { addClubGame, addNotice, addSummary, clubDigest, clubGamesOn, markTold, schoolMemory, schoolNote, schoolReport, untold, untoldGames, untoldNotices } from './diary.js'
 import type { SchoolHost } from './host.js'
+import type { LeaderboardEntry } from './club-protocol.js'
 import { createSchoolHttp, SchoolError, type SchoolHttp } from './http.js'
-import { classFrame } from './prompts.js'
+import { classFrame, clubFrame } from './prompts.js'
 import type { Slot } from './protocol.js'
 import {
   DIVISIONS,
@@ -47,6 +50,14 @@ export interface SchoolConfig {
   morning: string
   afternoon: string
   evening: string
+  /** 社团：学校时区的一天里最多打几局。 */
+  clubGamesPerDay: number
+  /** 社团：只在这段时间里打（学校时区的 HH:MM-HH:MM）；空是社团开门就去。 */
+  clubHours: string
+  clubJoin: JoinMode
+  clubInvites: InvitePolicy
+  clubIdle: IdlePolicy
+  clubReactChance: number
 }
 
 export const DEFAULT_SCHOOL_CONFIG: SchoolConfig = {
@@ -60,6 +71,12 @@ export const DEFAULT_SCHOOL_CONFIG: SchoolConfig = {
   morning: '10:00-10:30',
   afternoon: '15:00-15:30',
   evening: '20:00-20:30',
+  clubGamesPerDay: 6,
+  clubHours: '',
+  clubJoin: DEFAULT_CLUB_SETTINGS.join,
+  clubInvites: DEFAULT_CLUB_SETTINGS.invites,
+  clubIdle: DEFAULT_CLUB_SETTINGS.idle,
+  clubReactChance: DEFAULT_CLUB_SETTINGS.reactChance,
 }
 
 /** 主人操作的结果：文字直接给主人看。 */
@@ -93,7 +110,9 @@ export function maskEmail(email: string): string {
 export class School {
   readonly http: SchoolHttp
   private readonly runners = new Map<string, Attendance>()
+  private readonly clubRunners = new Map<string, ClubAttendance>()
   private readonly classUrl: string
+  private readonly clubUrl: string
   private disposed = false
 
   constructor(
@@ -104,6 +123,7 @@ export class School {
   ) {
     this.http = http ?? createSchoolHttp({ base: cfg.base, userAgent: `schoolforbots-plugin-${plugin.type}/${plugin.version}` })
     this.classUrl = cfg.base.replace(/^http/, 'ws').replace(/\/+$/, '') + '/v1/class'
+    this.clubUrl = cfg.base.replace(/^http/, 'ws').replace(/\/+$/, '') + '/v1/club'
     for (const s of this.students) normalizeStudent(s)
   }
 
@@ -203,6 +223,62 @@ export class School {
     this.runners.delete(aiId)
   }
 
+  /** 社团能不能去：宿主能无状态地问模型。 */
+  canPlay(): boolean {
+    return typeof this.host.ask === 'function' && (this.host.canAsk?.() ?? true)
+  }
+
+  private startClubRunner(s: StudentRecord): void {
+    if (this.clubRunners.has(s.aiId) || !this.host.ask) return
+    const ask = this.host.ask.bind(this.host)
+    const tag = `[${s.aiName} · 社团]`
+    const club = new ClubAttendance({
+      http: this.http,
+      clubUrl: this.clubUrl,
+      plugin: this.plugin,
+      getKey: () => this.host.secrets.get(keyName(s.aiId)),
+      enabled: () => this.cfg.enabled && s.club.enabled,
+      gamesOn: (date) => clubGamesOn(s.diary, date).length,
+      gamesPerDay: () => Math.max(0, Math.floor(this.cfg.clubGamesPerDay)),
+      window: () => (this.cfg.clubHours.trim() ? slotTime(this.cfg.clubHours) ?? null : null),
+      table: () => ({
+        ask: (req) => ask(s.aiId, { system: clubFrame({ persona: s.persona, displayName: s.displayName, className: s.className }), prompt: req.prompt, deadline: req.deadline }),
+        settings: () => ({ join: this.cfg.clubJoin, invites: this.cfg.clubInvites, idle: this.cfg.clubIdle, reactChance: this.cfg.clubReactChance }),
+        onGame: (g) => {
+          if (addClubGame(s.diary, g)) this.save()
+        },
+        log: (m) => this.host.log.info(tag, m),
+      }),
+      loadResume: () => s.club.resume,
+      saveResume: (r) => {
+        s.club.resume = r
+        this.save()
+      },
+      loadHold: () => s.club.hold,
+      saveHold: (h) => {
+        s.club.hold = h
+        this.save()
+      },
+      onNotMember: (message) => {
+        s.club.enabled = false
+        this.alert(s, `斗地主社：${message}（入社开关已经关上）`)
+      },
+      onAlert: (text) => this.alert(s, text),
+      log: (m) => this.host.log.info(tag, m),
+    })
+    this.clubRunners.set(s.aiId, club)
+    void club.run()
+  }
+
+  private stopClubRunner(aiId: string): void {
+    this.clubRunners.get(aiId)?.stop()
+    this.clubRunners.delete(aiId)
+  }
+
+  clubStatusOf(s: StudentRecord): ClubStatus | null {
+    return this.clubRunners.get(s.aiId)?.status ?? null
+  }
+
   /** 按档案开关上学循环：开着、报完名的学生去上学，别的停下。 */
   sync(): void {
     if (this.disposed) return
@@ -210,8 +286,11 @@ export class School {
       const want = this.cfg.enabled && s.enabled && s.studentId !== null
       if (want) this.startRunner(s)
       else this.stopRunner(s.aiId)
+      if (want && s.club.enabled && this.canPlay()) this.startClubRunner(s)
+      else this.stopClubRunner(s.aiId)
     }
     for (const id of [...this.runners.keys()]) if (!this.students.some((s) => s.aiId === id)) this.stopRunner(id)
+    for (const id of [...this.clubRunners.keys()]) if (!this.students.some((s) => s.aiId === id)) this.stopClubRunner(id)
   }
 
   statusOf(s: StudentRecord): AttendanceStatus | null {
@@ -221,6 +300,7 @@ export class School {
   /** 卸载：停掉所有上学循环，之后不再写存档。 */
   dispose(): void {
     for (const id of [...this.runners.keys()]) this.stopRunner(id)
+    for (const id of [...this.clubRunners.keys()]) this.stopClubRunner(id)
     this.disposed = true
   }
 
@@ -248,10 +328,11 @@ export class School {
     if (!text) return null
     const ids = untold(s.diary).slice(0, 2).map((x) => x.sessionId)
     const notices = untoldNotices(s.diary).slice(0, 3)
+    const games = untoldGames(s.diary).map((g) => g.gameId)
     return {
       text,
       delivered: () => {
-        markTold(s.diary, ids, notices)
+        markTold(s.diary, ids, notices, games)
         this.save()
       },
     }
@@ -294,6 +375,8 @@ export class School {
       `${cmd} rules                   看现在的校规`,
       `${cmd} rename 主人名 AI名       改名`,
       `${cmd} on | off                让 AI 去上学 / 先不去`,
+      `${cmd} club [on | off]          斗地主社：看战绩，入社 / 退社（入社后课余会去打牌，要一直开着 DSH，也花模型的钱）`,
+      `${cmd} club rank [week | all]   斗地主社的排行榜（本周 / 总榜）`,
       `${cmd} key-reset               钥匙丢了：换一把（验证码发到报名邮箱）`,
       `${cmd} withdraw 确认            退学（让出座位）`,
       `${cmd} forget                  删掉还没报完名的草稿`,
@@ -315,6 +398,12 @@ export class School {
     const pendingNotices = untoldNotices(s.diary)
     if (pendingNotices.length) lines.push(`插件提醒：${pendingNotices.map((n) => n.text).join('；')}`)
     if (!this.host.canThink()) lines.push('注意：这里没法让 AI 在课上说话（DSH 要用桌面版或 dsh web）。')
+    if (s.club.enabled) {
+      const cs = this.clubStatusOf(s)
+      const day = s.diary.clubGames[0]?.date
+      const n = day ? clubGamesOn(s.diary, day).length : 0
+      lines.push(`斗地主社：${cs ? cs.message : '已入社'}${n ? `（${day} 打了 ${n} 局）` : ''}`)
+    }
     return lines.join('\n')
   }
 
@@ -500,6 +589,8 @@ export class School {
           this.sync()
           return ok(s.enabled ? '好的，AI 会按课表去上学。' : '好的，先不去上学了（座位保留；连续 30 天不去会算退学）。')
         }
+        case 'club':
+          return await this.clubCommand(target(), args, cmd)
         case 'key-reset': {
           const s = target()
           await startKeyReset(this.http, s)
@@ -548,6 +639,62 @@ export class School {
       if (error instanceof KeyNotSavedError) return fail(await this.keyRescueText(error, raw, ctx, cmd))
       return fail(this.errText(error, cmd))
     }
+  }
+
+  /** /school club …：入社、退社、战绩、排行。入社要主人亲手打开（接口文档：插件不要替主人入社）。 */
+  private async clubCommand(s: StudentRecord, args: string[], cmd: string): Promise<OwnerResult> {
+    const key = await this.host.secrets.get(keyName(s.aiId))
+    if (!key) return { ok: false, text: '还没有钥匙：先报完名。' }
+    const [sub = '', arg = ''] = args
+    if (sub === 'on') {
+      if (!this.canPlay()) return { ok: false, text: '这个 DSH 没法无状态地调用模型，去不了社团。' }
+      const m = await this.http.joinClub(key)
+      s.club.enabled = true
+      s.club.hold = null
+      this.save()
+      this.sync()
+      const since = m.joinedAt ? `，${new Date(m.joinedAt).toLocaleDateString('zh-CN')} 起` : ''
+      const hours = this.cfg.clubHours.trim() ? `，只在 ${this.cfg.clubHours} 之间` : ''
+      return {
+        ok: true,
+        text: [
+          `入社了（斗地主社${since}）。`,
+          `课余社团开门时它会去打牌，一天最多 ${this.cfg.clubGamesPerDay} 局${hours}。每一步都会调用一次模型，费用算在你的模型账户上；打牌时 DSH 要开着。`,
+          `不想去了打 ${cmd} club off。`,
+        ].join('\n'),
+      }
+    }
+    if (sub === 'off') {
+      await this.http.leaveClub(key)
+      s.club.enabled = false
+      s.club.resume = null
+      this.save()
+      this.sync()
+      return { ok: true, text: '退社了。战绩还留着，以后可以再入社。' }
+    }
+    if (sub === 'rank') {
+      const board = arg === 'all' || arg === '总榜' ? 'all' : 'week'
+      const r = await this.http.clubLeaderboard(key, board)
+      const head = board === 'week' ? `斗地主社本周榜（${r.weekStartsOn} 起）` : '斗地主社总榜'
+      if (!r.entries.length) return { ok: true, text: `${head}：还没有人上榜。` }
+      const line = (e: LeaderboardEntry) => `${e.rank}. ${e.displayName}（${e.className}）${e.points} 分，${e.games} 局`
+      const lines = [head, ...r.entries.map(line)]
+      if (r.moreTied) lines.push(`另有 ${r.moreTied.count} 位并列第 ${r.moreTied.rank} 名`)
+      if (r.me) lines.push(`它：${line(r.me)}`)
+      return { ok: true, text: lines.join('\n') }
+    }
+    if (sub) return { ok: false, text: `格式：${cmd} club [on | off | rank week | rank all]` }
+    const [m, st] = await Promise.all([this.http.clubMembership(key), this.http.clubStats(key)])
+    const mismatch = s.club.enabled !== m.member ? `（插件这边的开关是${s.club.enabled ? '开' : '关'}着的）` : ''
+    const lines = [`斗地主社：${m.member ? '已入社' : '没有入社'}${mismatch}`]
+    const cs = this.clubStatusOf(s)
+    if (cs) lines.push(`现在：${cs.message}`)
+    lines.push(`战绩：${st.games} 局，赢 ${st.wins} 局；当地主 ${st.landlordGames} 局，赢 ${st.landlordWins} 局；积分 ${st.points.total}（本周 ${st.points.week}）`)
+    lines.push(`春天 ${st.springs} 次，反春 ${st.antiSprings} 次，炸弹 ${st.bombs} 个，火箭 ${st.rockets} 个，最大 ${st.maxMultiplier} 倍；超时 ${st.timeouts} 步，托管替出 ${st.trusteeMoves} 步，出错牌 ${st.illegalMoves} 次`)
+    const day = s.diary.clubGames[0]?.date
+    if (day) lines.push('', `${day}：`, clubDigest(clubGamesOn(s.diary, day), 'owner', 10))
+    if (!m.member) lines.push('', `入社：${cmd} club on`)
+    return { ok: true, text: lines.join('\n') }
   }
 
   /** 钥匙存不进去：先写到别的文件，回复里只给位置；那也不行才把钥匙本身给主人。 */

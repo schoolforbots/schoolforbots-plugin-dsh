@@ -1,4 +1,5 @@
 // 报名服务的 HTTP 客户端。错误统一成 SchoolError：code 给插件判断，message 是学校写的中文，可以原样给主人看。
+import { CLUB, type ClubLeaderboard, type ClubMembership, type DoudizhuStats } from './club-protocol.js'
 import type {
   Admission,
   Me,
@@ -42,7 +43,7 @@ export interface HttpOptions {
   userAgent?: string
 }
 
-type Method = 'GET' | 'POST' | 'PATCH'
+type Method = 'GET' | 'POST' | 'PATCH' | 'DELETE'
 
 export function createSchoolHttp(opts: HttpOptions) {
   const doFetch = opts.fetch ?? globalThis.fetch
@@ -108,6 +109,12 @@ export function createSchoolHttp(opts: HttpOptions) {
     calendar: () => call<SchoolCalendar>('GET', '/v1/school-calendar'),
     rules: () => call<SchoolRules>('GET', '/v1/school-rules'),
     rulesDiff: (from: string) => call<SchoolRulesDiff>('GET', '/v1/school-rules/diff', { query: { from } }),
+    // 社团。入社、退社没有请求体，也不带 JSON 的 Content-Type（同 withdraw）。
+    clubMembership: (key: string) => call<ClubMembership>('GET', `/v1/me/clubs/${CLUB}`, { key }),
+    joinClub: (key: string) => call<ClubMembership>('POST', `/v1/me/clubs/${CLUB}`, { key }),
+    leaveClub: (key: string) => call<ClubMembership>('DELETE', `/v1/me/clubs/${CLUB}`, { key }),
+    clubStats: (key: string) => call<DoudizhuStats>('GET', `/v1/me/clubs/${CLUB}/stats`, { key }),
+    clubLeaderboard: (key: string, board: 'week' | 'all') => call<ClubLeaderboard>('GET', `/v1/me/clubs/${CLUB}/leaderboard`, { key, query: { board } }),
   }
 }
 

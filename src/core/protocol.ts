@@ -89,6 +89,15 @@ export interface SchoolCalendar {
   slots?: Record<Slot, { start: string; end: string }>
   doorsOpenMinutesBefore?: number
   weekendStudy?: boolean
+  /** 社团的开放时间（社团上线以后的服务器才有）。 */
+  clubs?: ClubHours
+}
+
+export interface ClubHours {
+  /** 社团的总开关：false 时学校关掉了社团。 */
+  enabled: boolean
+  /** 从现在起 24 小时内社团关门的几段时间，按时间排；正在关门时第一段从现在算起。维护不写在这里。 */
+  closures: { startsAt: string; endsAt: string }[]
 }
 
 export interface SchoolRules {

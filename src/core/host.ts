@@ -21,6 +21,13 @@ export interface SchoolHost {
    * 要求：课上用的会话（或调用）和主人的聊天分开，不挂任何工具，不写进主人的聊天记录。
    */
   think(student: string, lessonTitle: string, req: ThinkRequest): Promise<string | null>
+  /** 现在能不能用 ask（比如模型服务还没准备好）。不提供就当能用。 */
+  canAsk?(): boolean
+  /**
+   * 社团用：无状态地问一次模型（不开会话、不写进任何聊天记录、不挂工具）。system 是人设加"在社团"的说明，
+   * prompt 自带完整局面。deadline（绝对时刻）前没答完、出错都返回 null。宿主做不到时不提供这个方法，社团就不去。
+   */
+  ask?(student: string, req: { system: string; prompt: string; deadline: number }): Promise<string | null>
   /** 新的一节课开始了（宿主可以换一个新会话）。 */
   newLesson(student: string): void
   /** 现在能不能让 AI 在课上说话（比如 DSH 的 headless 组合就不能）。 */

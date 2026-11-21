@@ -5,6 +5,7 @@
 // 报名、同意校规、填验证码都由主人用 /school 命令完成，不经过模型。
 import { readFileSync } from 'node:fs'
 import { createApp, DEFAULT_CONFIG, type App, type AppConfig } from './app.js'
+import { createAsker } from './asker.js'
 import { createBrain, roomDirOf } from './brain.js'
 import { service, type CommandDef, type Credentials, type DshContext, type Logger, type ToolDef } from './host.js'
 import { attachNote } from './note.js'
@@ -45,6 +46,13 @@ export const Config = Schema
       base: Schema.string().default(DEFAULT_CONFIG.base).description('学校的接口地址（一般不用改）。'),
       statusUrl: Schema.string().default(DEFAULT_CONFIG.statusUrl).description('学校状态文件的地址（连不上学校时才读）。'),
       preset: Schema.string().default(DEFAULT_CONFIG.preset).description('上课会话用的预设 id（默认是随插件安装的「机器人网校 · 上课」：只有人设，没有工具）。'),
+      clubGamesPerDay: Schema.natural().min(0).max(100).default(DEFAULT_CONFIG.clubGamesPerDay).description('斗地主社：一天（学校时区）最多打几局。每一步都要调用一次模型，一局几十次。入社用 /school club on。'),
+      clubHours: Schema.string().default(DEFAULT_CONFIG.clubHours).description('斗地主社：只在这段时间里去（学校时区，比如 09:00-22:00）。不填 = 社团开门就去。'),
+      clubJoin: Schema.union(['quick', 'bots']).default(DEFAULT_CONFIG.clubJoin).description('斗地主社：怎么进房间。quick = 快速加入别人的房间（没有就自己开一个等人）；bots = 自己开房间、马上用学校的陪练坐满（不计排行）。'),
+      clubInvites: Schema.union(['accept', 'classmates', 'decline']).default(DEFAULT_CONFIG.clubInvites).description('斗地主社：收到邀请时。accept = 都接受；classmates = 只接受同班同学的；decline = 都拒绝。'),
+      clubIdle: Schema.union(['bots', 'leave']).default(DEFAULT_CONFIG.clubIdle).description('斗地主社：房间等太久凑不齐人时。bots = 叫陪练坐满开打；leave = 离开，过几分钟再找房间。'),
+      clubReactChance: Schema.number().min(0).max(1).step(0.05).default(DEFAULT_CONFIG.clubReactChance).description('斗地主社：一局结束时、有人对它发表情时，它发一条表情或短语的概率（0～1）。'),
+      clubModel: Schema.string().default('').description('斗地主社用的模型（provider/model）。不填 = 用上课的模型，再没有用 DSH 的默认模型。别用太慢的推理模型：每一步大约有一分钟。'),
     })
   : undefined
 
@@ -77,7 +85,9 @@ export function apply(ctx: DshContext, rawConfig: Partial<AppConfig> = {}) {
     classModel: () => config.classModel,
     onTrouble: (student, text) => app?.school.trouble(student, text),
   })
-  app = createApp({ config, store, secrets, brain, log, version: VERSION })
+  // 社团：每一步无状态地问一次模型（ctx.llm.stream），不开会话
+  const asker = createAsker({ ctx, log, models: () => [config.clubModel, config.classModel] })
+  app = createApp({ config, store, secrets, brain, asker, log, version: VERSION })
   const school = app
 
   // 上课会话的系统提示词：预设里的 {{schoolforbots_class_prompt}}。变量一定要有值，否则整次组装失败。
@@ -99,7 +109,7 @@ export function apply(ctx: DshContext, rawConfig: Partial<AppConfig> = {}) {
       commands.register({
         name: 'school',
         description: '机器人网校：报名、看 AI 在学校的状态和放学小结（/school help）',
-        input: { hint: 'enroll | agree | code | bind | persona | today | records | rules | on | off | forget | help' },
+        input: { hint: 'enroll | agree | code | bind | persona | today | records | rules | on | off | club | forget | help' },
         recordInput: false,
         handler: (inv) => school.command(inv),
       }),
