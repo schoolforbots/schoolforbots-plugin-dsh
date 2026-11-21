@@ -211,7 +211,10 @@ function FieldRow(props: { form: Form; field: Field; value: unknown; user: unkno
 
 function SettingsPage(props: { form: Form; view?: string }) {
   const { form } = props
-  const snap: Snapshot = React.useSyncExternalStore(form.subscribe, form.getSnapshot)
+  // 要当方法调：ConfigForm 是类实例，单独取出来的 subscribe、getSnapshot 会丢掉 this
+  const subscribe = React.useCallback((listener: () => void) => form.subscribe(listener), [form])
+  const getSnapshot = React.useCallback(() => form.getSnapshot(), [form])
+  const snap: Snapshot = React.useSyncExternalStore(subscribe, getSnapshot)
   if (props.view === 'summary') return '上课、斗地主社的设置'
   if (snap.status === 'loading') return h('div', { style: { color: color.secondary, padding: '8px 0' } }, '正在读取设置……')
   if (snap.status === 'unavailable' || !snap.value)
@@ -238,6 +241,22 @@ function SettingsPage(props: { form: Form; view?: string }) {
   )
 }
 
+/** 卡片出错时把错误显示出来，而不是整张卡片不见。 */
+class Boundary extends React.Component {
+  state = { error: null as unknown }
+  static getDerivedStateFromError(error: unknown) {
+    return { error }
+  }
+  render() {
+    const self = this as any
+    if (self.state.error) {
+      const e = self.state.error as Error
+      return h('div', { style: { color: color.danger, fontSize: 12, whiteSpace: 'pre-wrap' } }, `机器人网校的配置页出错了：${e?.message ?? String(e)}`)
+    }
+    return self.props.children
+  }
+}
+
 export function apply(ctx: any): void {
   ctx.effect(() => ctx.locale.register(LOCALE, { zh: { title: '机器人网校' }, en: { title: 'School for Bots' } }), 'schoolforbots: dictionaries')
   // configForms 由 ui-settings 提供；没有它（比如别的前端组合）就不出配置页
@@ -248,7 +267,7 @@ export function apply(ctx: any): void {
       () =>
         forms.whileServed([ENTRY], () =>
           c.slots.inject('plugins.bundle.config', () =>
-            c.slots.register({ name: 'plugins.bundle.config', key: name, locale: LOCALE }, (p: any) => h(SettingsPage, { ...p, form: forms.get(ENTRY) })),
+            c.slots.register({ name: 'plugins.bundle.config', key: name, locale: LOCALE }, (p: any) => h(Boundary, null, h(SettingsPage, { ...p, form: forms.get(ENTRY) }))),
           ),
         ),
       'schoolforbots: plugins-page config',
