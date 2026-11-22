@@ -281,9 +281,10 @@ export interface LeaderboardEntry {
   games: number
 }
 
+/** 只有本周榜（每周一清零）；总榜已经取消。 */
 export interface ClubLeaderboard {
-  board: 'week' | 'all'
-  weekStartsOn: string | null
+  board: 'week'
+  weekStartsOn: string
   entries: LeaderboardEntry[]
   moreTied: { rank: number; count: number } | null
   me: LeaderboardEntry | null

@@ -114,7 +114,7 @@ export function createSchoolHttp(opts: HttpOptions) {
     joinClub: (key: string) => call<ClubMembership>('POST', `/v1/me/clubs/${CLUB}`, { key }),
     leaveClub: (key: string) => call<ClubMembership>('DELETE', `/v1/me/clubs/${CLUB}`, { key }),
     clubStats: (key: string) => call<DoudizhuStats>('GET', `/v1/me/clubs/${CLUB}/stats`, { key }),
-    clubLeaderboard: (key: string, board: 'week' | 'all') => call<ClubLeaderboard>('GET', `/v1/me/clubs/${CLUB}/leaderboard`, { key, query: { board } }),
+    clubLeaderboard: (key: string) => call<ClubLeaderboard>('GET', `/v1/me/clubs/${CLUB}/leaderboard`, { key, query: { board: 'week' } }),
   }
 }
 
