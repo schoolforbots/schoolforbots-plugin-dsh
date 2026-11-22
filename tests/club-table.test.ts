@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import type { ClubAck, ClubOutgoing } from '../src/core/club-protocol.js'
+import type { ClubAck, ClubOutgoing, DoudizhuEvent } from '../src/core/club-protocol.js'
 import { ClubTable, DEFAULT_CLUB_SETTINGS, type AskRequest, type ClubSettings } from '../src/core/club-table.js'
 import type { ClubGameRecord } from '../src/core/doudizhu.js'
 import { bidTurn, clubWelcome, ME, P52, P61, playTurn, result, room } from './club-fixtures.js'
 
-function setup(o: { answers?: (string | null)[]; ack?: (m: ClubOutgoing) => ClubAck | undefined; settings?: Partial<ClubSettings>; wantMore?: () => boolean; random?: number } = {}) {
+function setup(o: { answers?: (string | null)[]; ack?: (m: ClubOutgoing) => ClubAck | undefined; settings?: Partial<ClubSettings>; wantMore?: () => boolean; random?: number; now?: () => number } = {}) {
   const sent: ClubOutgoing[] = []
   const asked: AskRequest[] = []
+  const timers: { ms: number; fn: () => void; cancelled: boolean }[] = []
   const games: ClubGameRecord[] = []
   const answers = [...(o.answers ?? [])]
   let done = 0
@@ -30,13 +31,26 @@ function setup(o: { answers?: (string | null)[]; ack?: (m: ClubOutgoing) => Club
     today: () => '2026-12-01',
     random: () => o.random ?? 0.99,
     sleep: async () => {},
+    ...(o.now ? { now: o.now } : {}),
+    after: (ms, fn) => {
+      const t = { ms, fn, cancelled: false }
+      timers.push(t)
+      return () => void (t.cancelled = true)
+    },
   })
   const settle = () => new Promise((r) => setTimeout(r, 20))
-  return { table, sent, asked, games, settle, done: () => done }
+  const reacts = () => sent.filter((m) => m.type === 'react')
+  const reactPrompts = () => asked.filter((a) => a.purpose === 'react').map((a) => a.prompt)
+  return { table, sent, asked, games, timers, settle, reacts, reactPrompts, done: () => done }
 }
 
 const over = (r = result()) => ({ type: 'room.event' as const, roomId: 'r7k2q', seq: 40, replayed: false, at: '', event: { kind: 'game' as const, game: 'doudizhu' as const, event: { kind: 'over' as const, result: r } } })
 const dealt = { type: 'room.event' as const, roomId: 'r7k2q', seq: 4, replayed: false, at: '', event: { kind: 'game' as const, game: 'doudizhu' as const, event: { kind: 'dealt' as const, gameId: 1024, seats: [P52, P61, ME], firstBidder: 2 } } }
+let seq = 100
+const ge = (event: DoudizhuEvent, replayed = false) => ({ type: 'room.event' as const, roomId: 'r7k2q', seq: seq++, replayed, at: '', event: { kind: 'game' as const, game: 'doudizhu' as const, event } })
+const dealtTo = (firstBidder: number) => ge({ kind: 'dealt', gameId: 1024, seats: [P52, P61, ME], firstBidder })
+const bomb = { type: 'bomb' as const, name: '炸弹', cards: ['9', '9', '9', '9'] as ('9')[] }
+const rocket = { type: 'rocket' as const, name: '王炸', cards: ['小王', '大王'] as ('小王' | '大王')[] }
 
 describe('ClubTable', () => {
   it('quick-joins a room after welcome, or opens a room with bots when set to', async () => {
@@ -174,5 +188,161 @@ describe('ClubTable', () => {
     await t.settle()
     expect(t.asked.at(-1)!.purpose).toBe('react')
     expect(t.sent).toContainEqual({ type: 'react', kind: 'phrase', content: 'good_play' })
+  })
+})
+
+describe('ClubTable reactions at more moments', () => {
+  async function seated(o: Parameters<typeof setup>[0] = {}) {
+    const t = setup({ random: 0, ...o })
+    t.table.handle(clubWelcome({ room: room() }))
+    await t.settle()
+    return t
+  }
+
+  it('offers a greeting when the cards are dealt, unless it bids first', async () => {
+    const t = await seated({ answers: ['hello'] })
+    t.table.handle(dealtTo(0))
+    await t.settle()
+    expect(t.reactPrompts()[0]).toContain('新的一局发好牌了，这局同桌是「小林家的豆豆 #0052」和「老王家的阿福 #0061」')
+    expect(t.reacts()).toEqual([{ type: 'react', kind: 'phrase', content: 'hello' }])
+
+    const first = await seated()
+    first.table.handle(dealtTo(2))
+    await first.settle()
+    expect(first.reactPrompts()).toEqual([])
+  })
+
+  it('offers a reaction when the landlord is decided, but not when it is its own lead', async () => {
+    const t = await seated()
+    t.table.handle(dealtTo(2))
+    t.table.handle(ge({ kind: 'landlord', seat: 0, base: 3, bottom: ['8', 'K', '大王'] }))
+    await t.settle()
+    expect(t.reactPrompts()).toEqual([expect.stringContaining('叫分结束，「小林家的豆豆 #0052」当了地主，底分 3，你是农民。')])
+
+    const mine = await seated()
+    mine.table.handle(dealtTo(2))
+    mine.table.handle(ge({ kind: 'landlord', seat: 2, base: 2, bottom: ['8', 'K', '大王'] }))
+    await mine.settle()
+    expect(mine.reactPrompts()).toEqual([])
+  })
+
+  it('offers a reaction to a bomb or a rocket, naming who played it', async () => {
+    const t = await seated({ now: (() => { let n = 0; return () => (n += 60_000) })() })
+    t.table.handle(dealtTo(2))
+    t.table.handle(ge({ kind: 'landlord', seat: 1, base: 3, bottom: ['8', 'K', '大王'] }))
+    await t.settle()
+    t.table.handle(ge({ kind: 'play', turn: 5, seat: 0, move: bomb, cardsLeft: 10, multiplier: 2, auto: null }))
+    await t.settle()
+    t.table.handle(ge({ kind: 'play', turn: 7, seat: 2, move: rocket, cardsLeft: 8, multiplier: 4, auto: null }))
+    await t.settle()
+    const prompts = t.reactPrompts()
+    expect(prompts.some((p) => p.includes('队友「小林家的豆豆 #0052」出了炸弹（9999），现在是 2 倍。'))).toBe(true)
+    expect(prompts.some((p) => p.includes('你出了王炸，现在是 4 倍。'))).toBe(true)
+  })
+
+  it('does not react to a bomb when it is next to play', async () => {
+    const t = await seated()
+    t.table.handle(dealtTo(2))
+    t.table.handle(ge({ kind: 'landlord', seat: 1, base: 3, bottom: ['8', 'K', '大王'] }))
+    await t.settle()
+    t.asked.length = 0
+    t.table.handle(ge({ kind: 'play', turn: 5, seat: 1, move: bomb, cardsLeft: 10, multiplier: 2, auto: null }))
+    await t.settle()
+    expect(t.reactPrompts()).toEqual([])
+  })
+
+  it('offers a reaction when someone else has used most of their time', async () => {
+    const t = await seated()
+    t.table.handle(dealtTo(0))
+    await t.settle()
+    const slow = t.timers.at(-1)!
+    expect(slow.ms).toBe(36_000) // 叫分 60 秒的六成
+    slow.fn()
+    await t.settle()
+    expect(t.reactPrompts().at(-1)).toContain('「小林家的豆豆 #0052」想了好一会儿还没叫分。')
+
+    // 已经动了：等的那个就作废，换成等下一个人
+    const moved = await seated()
+    moved.table.handle(dealtTo(0))
+    const stale = moved.timers.at(-1)!
+    moved.table.handle(ge({ kind: 'bid', turn: 1, seat: 0, bid: 1, auto: null }))
+    await moved.settle()
+    expect(stale.cancelled).toBe(true)
+    const before = moved.reactPrompts().length
+    stale.fn()
+    await moved.settle()
+    expect(moved.reactPrompts().length).toBe(before)
+    expect(moved.timers.at(-1)!.cancelled).toBe(false)
+
+    // 轮到自己、轮到陪练：不等
+    const none = await seated()
+    none.table.handle(dealtTo(2))
+    none.table.handle(ge({ kind: 'dealt', gameId: 1025, seats: [{ studentId: null, displayName: '陪练甲', bot: true }, P61, ME], firstBidder: 0 }))
+    expect(none.timers.filter((x) => !x.cancelled)).toEqual([])
+  })
+
+  it('offers a reaction after it chose to pass, but not after a timeout pass', async () => {
+    const t = await seated()
+    t.table.handle(dealtTo(2))
+    t.table.handle(ge({ kind: 'landlord', seat: 0, base: 3, bottom: ['8', 'K', '大王'] }))
+    await t.settle()
+    t.asked.length = 0
+    t.table.handle(ge({ kind: 'pass', turn: 6, seat: 2, auto: null }))
+    await t.settle()
+    expect(t.reactPrompts()).toEqual([expect.stringContaining('这一轮你要不起，选了"不要"。')])
+    t.asked.length = 0
+    t.table.handle(ge({ kind: 'pass', turn: 9, seat: 2, auto: 'timeout' }))
+    await t.settle()
+    expect(t.reactPrompts()).toEqual([])
+  })
+
+  it('keeps to the chance, the per-game limit and the interval, and asks with a short deadline', async () => {
+    let clock = 1_000_000
+    const t = await seated({ answers: ['hello', 'good_play', 'good_play'], now: () => clock })
+    t.table.handle(clubWelcome({ room: room(), limits: { ...clubWelcome().limits, reactsPerGame: 1, reactMinIntervalSeconds: 5 } }))
+    t.table.handle(dealtTo(0))
+    await t.settle()
+    expect(t.asked.at(-1)!.deadline - clock).toBeLessThanOrEqual(10_000)
+    clock += 60_000
+    t.table.handle(ge({ kind: 'pass', turn: 2, seat: 2, auto: null }))
+    await t.settle()
+    expect(t.reacts()).toHaveLength(1)
+
+    // 两条之间不到最短间隔：不问
+    const quick = await seated({ answers: ['hello'], now: () => 5_000_000 })
+    quick.table.handle(dealtTo(0))
+    await quick.settle()
+    quick.table.handle(ge({ kind: 'pass', turn: 2, seat: 2, auto: null }))
+    await quick.settle()
+    expect(quick.reactPrompts()).toHaveLength(1)
+
+    // 主人把概率设成 0：哪个时刻都不问
+    const never = setup({ random: 0, settings: { reactChance: 0 } })
+    never.table.handle(clubWelcome({ room: room() }))
+    never.table.handle(dealtTo(0))
+    await never.settle()
+    expect(never.reactPrompts()).toEqual([])
+  })
+
+  it('does not ask about a reaction while it is thinking about its own move', async () => {
+    let release: (v: string) => void = () => {}
+    const t = await seated()
+    const asked: string[] = []
+    // 出牌时模型想得慢：这期间别人出炸弹，不另外问
+    ;(t.table as unknown as { d: { ask: (r: AskRequest) => Promise<string | null> } }).d.ask = (r) => {
+      asked.push(r.purpose)
+      return r.purpose === 'turn' ? new Promise((res) => (release = res)) : Promise.resolve(null)
+    }
+    t.table.handle(dealtTo(2))
+    t.table.handle(ge({ kind: 'landlord', seat: 0, base: 3, bottom: ['8', 'K', '大王'] }))
+    await t.settle()
+    t.table.handle(playTurn())
+    await t.settle()
+    t.table.handle(ge({ kind: 'play', turn: 6, seat: 1, move: bomb, cardsLeft: 10, multiplier: 2, auto: null }))
+    await t.settle()
+    expect(asked.filter((p) => p === 'react').length).toBe(1) // 只有地主定了那一次
+    expect(asked.at(-1)).toBe('turn')
+    release('1')
+    await t.settle()
   })
 })
