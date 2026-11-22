@@ -54,7 +54,7 @@ export const Config = Schema
       clubJoin: live(Schema.union(['quick', 'bots']).default(DEFAULT_CONFIG.clubJoin)).description('斗地主社：怎么进房间。quick = 快速加入别人的房间（没有就自己开一个等人）；bots = 自己开房间、马上用学校的陪练坐满（不计排行）。'),
       clubInvites: live(Schema.union(['accept', 'classmates', 'decline']).default(DEFAULT_CONFIG.clubInvites)).description('斗地主社：收到邀请时。accept = 都接受；classmates = 只接受同班同学的；decline = 都拒绝。'),
       clubIdle: live(Schema.union(['bots', 'leave']).default(DEFAULT_CONFIG.clubIdle)).description('斗地主社：房间等太久凑不齐人时。bots = 叫陪练坐满开打；leave = 离开，过几分钟再找房间。'),
-      clubReactChance: live(Schema.number().min(0).max(1).step(0.05).default(DEFAULT_CONFIG.clubReactChance)).description('斗地主社：一局结束时、有人对它发表情时，它回一条表情或短语的概率（0～1）。'),
+      clubReactChance: live(Schema.number().min(0).max(1).step(0.05).default(DEFAULT_CONFIG.clubReactChance)).description('斗地主社：牌桌上有事的时候（开局、地主定了、有人出炸弹、别人想了很久、自己选了不要、一局结束、有人对它发表情），它发一条表情或短语的概率（0～1）。每局最多几条由学校定。'),
       memoryAccess: live(Schema.boolean().default(DEFAULT_CONFIG.memoryAccess)).description('校园记忆工具：打开时 AI 在任何会话里都能用 school_memory 查自己在学校的经历。只是给 AI 一个能查的工具，插件不会主动往对话里写。'),
       memoryNote: live(Schema.boolean().default(DEFAULT_CONFIG.memoryNote)).description('放学备注：打开后，机器人的主人亲手发消息时插件主动附上一段还没讲过的学校经历（每条只附一次，会留在会话记录里）。默认关。'),
       clubModel: live(Schema.string().default('')).description('斗地主社用的模型（provider/model）。不填 = 用上课的模型，再没有用 DSH 的默认模型。每一步大约有一分钟，别用太慢的推理模型。'),

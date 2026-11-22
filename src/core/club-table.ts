@@ -1,4 +1,8 @@
 // 连上社团以后做什么：进房、一局打完准备下一局、回邀请、处理空闲提示、轮到自己时问模型、发互动消息、打够了离开。
+//
+// 互动消息：被同桌点名、一局结束，再加上开局、地主定了、有人出炸弹或王炸、别人想了很久、自己要不起选了不要这几个时刻，
+// 都按主人设的概率问一次模型要不要发。每局上限和两条之间的间隔照服务器给的。
+// 下一个该动的是自己、或者正在想自己这一步时不问，免得和出牌抢模型；一次只问一条，最多等 10 秒。
 // 不认识 WebSocket，也不认识 DSH：消息从 handle() 进来，动作通过 send() 发出去，想出哪张牌交给 ask()。
 //
 // 轮到自己（接口文档"打社团的牌局"）：
@@ -18,7 +22,7 @@ export interface ClubSettings {
   join: JoinMode
   invites: InvitePolicy
   idle: IdlePolicy
-  /** 一局结束时、被人点名发互动消息时，发一条的概率（0～1）。 */
+  /** 牌桌上有事的时候（开局、一局结束、被人点名等），发一条互动消息的概率（0～1）。 */
   reactChance: number
 }
 
@@ -48,6 +52,8 @@ export interface ClubTableDeps {
   now?: () => number
   random?: () => number
   sleep?: (ms: number) => Promise<void>
+  /** 过 ms 毫秒以后调用 fn；返回取消的函数。 */
+  after?: (ms: number, fn: () => void) => () => void
   log?: (msg: string) => void
 }
 
@@ -56,6 +62,10 @@ const MARGIN_MS = 4_000
 /** 进房失败、被请出房间以后，过多久再去。 */
 const REJOIN_MS = 20_000
 const LEAVE_PAUSE_MS = 5 * 60_000
+/** 别人用了这一步时限的这么多还没动，算"想了很久"。 */
+const SLOW_SHARE = 0.6
+/** 问要不要发互动消息，最多等多久。 */
+const REACT_ASK_MS = 10_000
 
 export class ClubTable {
   private me: number | null = null
@@ -71,6 +81,12 @@ export class ClubTable {
   private busyTurn: string | null = null
   private lastReactAt = 0
   private reactsThisGame = 0
+  private reacting = false
+  /** 这一局里下一个该动的座位（不知道是 null）、现在是叫分还是出牌、谁是地主。 */
+  private toAct: number | null = null
+  private phase: 'bidding' | 'playing' | null = null
+  private landlord: number | null = null
+  private cancelSlow: (() => void) | null = null
   private joining = false
   /** 空闲时自己离开的：过一会儿再找房间，room.left 不马上再进。 */
   private pausing = false
@@ -79,15 +95,24 @@ export class ClubTable {
   private readonly now: () => number
   private readonly random: () => number
   private readonly sleep: (ms: number) => Promise<void>
+  private readonly after: (ms: number, fn: () => void) => () => void
 
   constructor(private readonly d: ClubTableDeps) {
     this.now = d.now ?? Date.now
     this.random = d.random ?? Math.random
     this.sleep = d.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)))
+    this.after =
+      d.after ??
+      ((ms, fn) => {
+        const t = setTimeout(fn, ms)
+        t.unref?.()
+        return () => clearTimeout(t)
+      })
   }
 
   stop(): void {
     this.stopped = true
+    this.setToAct(null, true)
   }
 
   private log(m: string): void {
@@ -105,6 +130,7 @@ export class ClubTable {
         this.inRoom = false
         this.mySeat = null
         this.turn = null
+        this.setToAct(null, true)
         if (msg.reason !== 'left') this.log(`离开了房间（${msg.reason === 'not_ready' ? '没准备，被请出去' : '房间关了'}）`)
         if (!this.pausing) void this.afterLeft(msg.reason === 'left' ? 0 : REJOIN_MS)
         return
@@ -131,7 +157,13 @@ export class ClubTable {
       this.inRoom = true
       this.roomGames = w.room.gamesPlayed
       this.mySeat = w.room.seats.find((s) => s.player?.studentId === this.me)?.seat ?? null
-      if (w.room.game) this.gameSeats = w.room.seats.map((s) => s.player ?? { studentId: null, displayName: '空座', bot: true })
+      if (w.room.game) {
+        this.gameSeats = w.room.seats.map((s) => s.player ?? { studentId: null, displayName: '空座', bot: true })
+        const g = w.room.game
+        this.phase = g.phase === 'over' ? null : g.phase
+        this.landlord = g.landlord
+        this.setToAct(g.phase === 'over' ? null : g.toAct, true)
+      }
       // 重连回来时上一局已经打完、自己还没准备：接着准备或者离开
       const mine = w.room.seats.find((s) => s.seat === this.mySeat)
       if ((!w.room.game || w.room.game.phase === 'over') && w.room.gamesPlayed > 0 && mine && !mine.ready) void this.afterGame()
@@ -249,14 +281,55 @@ export class ClubTable {
   }
 
   private onGameEvent(e: Extract<RoomEvent, { kind: 'game' }>['event'], replayed: boolean): void {
-    if (e.kind === 'dealt') {
-      this.gameSeats = e.seats
-      const seat = e.seats.findIndex((p) => p.studentId === this.me && this.me !== null)
-      if (seat >= 0) this.mySeat = seat
-      this.reactsThisGame = 0
-      return
+    const next = (seat: number) => (seat + 1) % 3
+    switch (e.kind) {
+      case 'dealt': {
+        this.gameSeats = e.seats
+        const seat = e.seats.findIndex((p) => p.studentId === this.me && this.me !== null)
+        if (seat >= 0) this.mySeat = seat
+        this.reactsThisGame = 0
+        this.phase = 'bidding'
+        this.landlord = null
+        this.setToAct(e.firstBidder, replayed)
+        if (!replayed) {
+          const others = e.seats.filter((_, i) => i !== this.mySeat).map((p) => `「${p.displayName}」${p.bot ? '（陪练）' : ''}`)
+          this.reactAt(`新的一局发好牌了，这局同桌是${others.join('和')}。`)
+        }
+        return
+      }
+      case 'bid':
+        this.setToAct(next(e.seat), replayed)
+        return
+      case 'redeal':
+        this.setToAct(null, replayed)
+        return
+      case 'landlord': {
+        const name = this.who(e.seat) // 还没记地主：只要名字
+        this.phase = 'playing'
+        this.landlord = e.seat
+        this.setToAct(e.seat, replayed)
+        // 自己当了地主就是自己先出：不问（见 reactAt）
+        if (!replayed) this.reactAt(e.seat === this.mySeat ? `叫分结束，你当了地主，底分 ${e.base}。` : `叫分结束，${name}当了地主，底分 ${e.base}，你是农民。`)
+        return
+      }
+      case 'play':
+        this.setToAct(next(e.seat), replayed)
+        if (!replayed && (e.move.type === 'bomb' || e.move.type === 'rocket')) {
+          const what = e.move.type === 'rocket' ? '王炸' : `炸弹（${e.move.cards.join('')}）`
+          this.reactAt(`${e.seat === this.mySeat ? '你' : this.who(e.seat)}出了${what}，现在是 ${e.multiplier} 倍。`)
+        }
+        return
+      case 'pass':
+        this.setToAct(next(e.seat), replayed)
+        if (!replayed && e.seat === this.mySeat && e.auto === null) this.reactAt('这一轮你要不起，选了"不要"。')
+        return
+      case 'over':
+        break
+      default:
+        return
     }
-    if (e.kind !== 'over') return
+    this.setToAct(null, replayed)
+    this.phase = null
     this.roomGames++
     this.turn = null
     if (this.mySeat !== null) {
@@ -355,11 +428,42 @@ export class ClubTable {
 
   // ---------- 互动消息 ----------
 
+  /** 某个座位的人，地主定了以后带上和自己的关系。 */
+  private who(seat: number): string {
+    const p = this.gameSeats[seat]
+    const name = `「${p?.displayName ?? `${seat} 号座位`}」${p?.bot ? '（陪练）' : ''}`
+    if (this.landlord === null || this.mySeat === null) return name
+    if (seat === this.landlord) return `地主${name}`
+    return this.landlord === this.mySeat ? `对手${name}` : `队友${name}`
+  }
+
+  /** 记下下一个该动的座位；轮到别人（不是陪练）时，用了这一步时限的一大半还没动，就算"想了很久"。 */
+  private setToAct(seat: number | null, replayed: boolean): void {
+    this.cancelSlow?.()
+    this.cancelSlow = null
+    this.toAct = seat
+    if (seat === null || replayed || this.stopped || seat === this.mySeat || !this.rules || !this.phase) return
+    if (this.gameSeats[seat]?.bot) return
+    const phase = this.phase
+    const seconds = phase === 'bidding' ? this.rules.bidSeconds : this.rules.playSeconds
+    this.cancelSlow = this.after(seconds * 1000 * SLOW_SHARE, () => {
+      this.cancelSlow = null
+      if (this.toAct !== seat || this.phase !== phase || this.stopped) return
+      this.reactAt(`${this.who(seat)}想了好一会儿还没${phase === 'bidding' ? '叫分' : '出牌'}。`)
+    })
+  }
+
+  /** 牌桌上的一个时刻。下一个该动的是自己、或者正在想自己这一步，就不问（不和出牌抢模型）。 */
+  private reactAt(what: string): void {
+    if (this.busyTurn || (this.toAct !== null && this.toAct === this.mySeat)) return
+    void this.maybeReact(what)
+  }
+
   /** 按概率发一条互动消息：让模型从允许的 emoji 和短语里挑，或者不发。 */
   private async maybeReact(what: string, to?: number | null): Promise<void> {
     const r = this.reactions
     const lim = this.limits
-    if (!r || !lim || this.random() >= this.d.settings().reactChance) return
+    if (!r || !lim || this.reacting || this.random() >= this.d.settings().reactChance) return
     if (this.reactsThisGame >= lim.reactsPerGame) return
     if (this.now() - this.lastReactAt < lim.reactMinIntervalSeconds * 1000 + 500) return
     const phrases = r.kinds.includes('phrase') ? r.phrases : []
@@ -374,13 +478,18 @@ export class ClubTable {
       ...(emoji.length ? [`- 表情：${emoji.join(' ')}`] : []),
       `只回一行：短语的编号（比如 ${phrases[0]?.id ?? 'hello'}），或者一个表情本身；不想发就回 ${SILENT}。`,
     ].join('\n')
-    const text = await this.d.ask({ purpose: 'react', prompt, deadline: this.now() + 20_000 })
-    const pick = parseReaction(text, r)
-    if (!pick || this.stopped) return
-    const ack = await this.d.send({ type: 'react', kind: pick.kind, content: pick.content, ...(to ? { to } : {}) })
-    if (ack.ok) {
-      this.lastReactAt = this.now()
-      this.reactsThisGame++
+    this.reacting = true
+    try {
+      const text = await this.d.ask({ purpose: 'react', prompt, deadline: this.now() + REACT_ASK_MS })
+      const pick = parseReaction(text, r)
+      if (!pick || this.stopped) return
+      const ack = await this.d.send({ type: 'react', kind: pick.kind, content: pick.content, ...(to ? { to } : {}) })
+      if (ack.ok) {
+        this.lastReactAt = this.now()
+        this.reactsThisGame++
+      }
+    } finally {
+      this.reacting = false
     }
   }
 }
