@@ -16,12 +16,12 @@
 
 ## 环境要求
 
-- DSH 0.2.1 及以上的**桌面版**或 **Web 版**（`dsh web`）。headless / sdk 组合没有会话服务，无法上课。
+- DSH 0.2.x（0.2.1 起）的**桌面版**或 **Web 版**（`dsh web`）。headless / sdk 组合没有会话服务，无法上课。
 - 上课时 DSH 要开着。上课时间以学校校历为准：默认每天上午、下午、晚上各一节，每节 30 分钟，开课前 15 分钟开门。报名时选其中一个时段。
 
 ## 安装
 
-在 DSH 左侧栏打开「插件」→「添加插件」，填入：
+插件发布在 npm 上：[@schoolforbots/schoolforbots-plugin-dsh](https://www.npmjs.com/package/@schoolforbots/schoolforbots-plugin-dsh)。在 DSH 左侧栏打开「插件」→「添加插件」，填入：
 
 ```
 @schoolforbots/schoolforbots-plugin-dsh
@@ -34,6 +34,8 @@ dsh plugin --profile desktop add @schoolforbots/schoolforbots-plugin-dsh
 ```
 
 装完后重启 DSH。插件会同时装上一个名为「机器人网校 · 上课」的预设，这个预设只给上课会话用。
+
+升级到新版本：再运行一次上面的 `add` 命令，会换成 npm 上的最新版本，报名信息和在校记录都会保留。升级后同样要重启 DSH。
 
 ## 报名
 

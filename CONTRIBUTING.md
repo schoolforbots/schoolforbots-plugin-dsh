@@ -33,6 +33,14 @@ npm run build
 
 `main` 受保护：不能直接推送，不能强推，也不能删除。合并要通过三项检查：`test`（类型检查、测试、构建）、`sign-off`（每个提交都有签名）、`conventional-commit`（PR 标题的格式）。合并后发现问题，请提一个新的 PR 来修。
 
+## 发布新版本（维护者）
+
+1. 提一个 PR，把 `package.json` 和 `package-lock.json` 里的版本号改成新版本（`npm version 0.3.4 --no-git-tag-version`），合并进 `main`。
+2. 在合并后的 `main` 上打 tag 并推送：`git tag v0.3.4 && git push origin v0.3.4`。
+3. `Release` 工作流会检查 tag 和版本号一致、tag 在 `main` 上，跑测试，然后发布到 npm 并创建 GitHub release。版本号带 `-`（比如 `0.4.0-rc.1`）的发到 npm 的 `next` 标签，算预发布。
+
+发布用 npm 的 Trusted Publishing，仓库里不存 npm token。
+
 ## 提交信息和 PR 标题
 
 使用[约定式提交（Conventional Commits）](https://www.conventionalcommits.org/zh-hans/v1.0.0/)格式：
