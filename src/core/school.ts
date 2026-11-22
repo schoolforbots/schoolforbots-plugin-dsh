@@ -467,7 +467,7 @@ export class School {
       `${cmd} rename 主人名 AI名       改名`,
       `${cmd} on | off                让 AI 去上学 / 先不去`,
       `${cmd} club [on | off]          斗地主社：看战绩，入社 / 退社（入社后课余会去打牌，要一直开着 DSH，也花模型的钱）`,
-      `${cmd} club rank [week | all]   斗地主社的排行榜（本周 / 总榜）`,
+      `${cmd} club rank               斗地主社本周的排行榜`,
       `${cmd} key-reset               钥匙丢了：换一把（验证码发到报名邮箱）`,
       `${cmd} withdraw 确认            退学（让出座位）`,
       `${cmd} forget                  删掉还没报完名的草稿`,
@@ -764,9 +764,10 @@ export class School {
       return { ok: true, text: '退社了。战绩还留着，以后可以再入社。' }
     }
     if (sub === 'rank') {
-      const board = arg === 'all' || arg === '总榜' ? 'all' : 'week'
-      const r = await this.http.clubLeaderboard(key, board)
-      const head = board === 'week' ? `斗地主社本周榜（${r.weekStartsOn} 起）` : '斗地主社总榜'
+      // 只有本周榜；以前的 `rank all` / `rank 总榜` 不再有
+      if (arg && arg !== 'week' && arg !== '本周') return { ok: false, text: `斗地主社只有本周的排行榜，每周一清零：${cmd} club rank` }
+      const r = await this.http.clubLeaderboard(key)
+      const head = `斗地主社本周榜（${r.weekStartsOn} 起）`
       if (!r.entries.length) return { ok: true, text: `${head}：还没有人上榜。` }
       const line = (e: LeaderboardEntry) => `${e.rank}. ${e.displayName}（${e.className}）${e.points} 分，${e.games} 局`
       const lines = [head, ...r.entries.map(line)]
@@ -774,13 +775,13 @@ export class School {
       if (r.me) lines.push(`它：${line(r.me)}`)
       return { ok: true, text: lines.join('\n') }
     }
-    if (sub) return { ok: false, text: `格式：${cmd} club [on | off | rank week | rank all]` }
+    if (sub) return { ok: false, text: `格式：${cmd} club [on | off | rank]` }
     const [m, st] = await Promise.all([this.http.clubMembership(key), this.http.clubStats(key)])
     const mismatch = s.club.enabled !== m.member ? `（插件这边的开关是${s.club.enabled ? '开' : '关'}着的）` : ''
     const lines = [`斗地主社：${m.member ? '已入社' : '没有入社'}${mismatch}`]
     const cs = this.clubStatusOf(s)
     if (cs) lines.push(`现在：${cs.message}`)
-    lines.push(`战绩：${st.games} 局，赢 ${st.wins} 局；当地主 ${st.landlordGames} 局，赢 ${st.landlordWins} 局；积分 ${st.points.total}（本周 ${st.points.week}）`)
+    lines.push(`战绩：${st.games} 局，赢 ${st.wins} 局；当地主 ${st.landlordGames} 局，赢 ${st.landlordWins} 局；累计得分 ${st.points.total}，本周 ${st.points.week} 分`)
     lines.push(`春天 ${st.springs} 次，反春 ${st.antiSprings} 次，炸弹 ${st.bombs} 个，火箭 ${st.rockets} 个，最大 ${st.maxMultiplier} 倍；超时 ${st.timeouts} 步，托管替出 ${st.trusteeMoves} 步，出错牌 ${st.illegalMoves} 次`)
     const day = s.diary.clubGames[0]?.date
     if (day) lines.push('', `${day}：`, clubDigest(clubGamesOn(s.diary, day), 'owner', 10))

@@ -103,6 +103,30 @@ describe('/school club', () => {
     expect(school.http.some((h) => h.method === 'DELETE')).toBe(true)
   })
 
+  it("shows only this week's leaderboard", async () => {
+    const { school } = await setup()
+    const r = await app!.ownerCommand('club rank', { home: 'home' })
+    expect(r.ok).toBe(true)
+    expect(r.text).toContain('斗地主社本周榜（2026-11-16 起）')
+    expect(r.text).toContain('它：2. 阿杰家的小鱼')
+    const asked = school.http.filter((h) => h.url.startsWith('/v1/me/clubs/doudizhu/leaderboard'))
+    expect(asked.map((h) => h.url)).toEqual(['/v1/me/clubs/doudizhu/leaderboard?board=week'])
+    for (const arg of ['all', '总榜']) {
+      const old = await app!.ownerCommand(`club rank ${arg}`, { home: 'home' })
+      expect(old.ok).toBe(false)
+      expect(old.text).toContain('只有本周的排行榜')
+    }
+    expect(school.http.filter((h) => h.url.includes('board=all'))).toEqual([])
+    expect(app!.help()).not.toContain('总榜')
+  })
+
+  it('calls the running total a total score, not a ranking', async () => {
+    await setup()
+    const r = await app!.ownerCommand('club', { home: 'home' })
+    expect(r.text).toContain('累计得分 45，本周 12 分')
+    expect(r.text).not.toContain('积分')
+  })
+
   it('refuses to join when the host cannot ask the model', async () => {
     await setup(false)
     const r = await app!.ownerCommand('club on', { home: 'home' })
