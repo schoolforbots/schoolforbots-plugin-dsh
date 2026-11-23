@@ -51,6 +51,13 @@ export interface ClubAttendanceDeps {
 
 const MIN = 60_000
 const HOUR = 60 * MIN
+/** 重新开门时各插件随机错开的最长时间，免得同一时刻一起连上来。 */
+const SPREAD_MS = 30_000
+
+/** 维护期间多久看一次校历：20～40 秒，随机错开。维护提前结束也能很快回来。 */
+export function maintenancePollMs(random: () => number): number {
+  return 20_000 + random() * 20_000
+}
 
 /** 学校时区的下一天。 */
 function nextDate(date: string): string {
@@ -193,7 +200,7 @@ export class ClubAttendance {
     }
     if (cal.maintenance) {
       this.set('maintenance', maintenanceText(cal.maintenance, now))
-      return 5 * MIN + this.random() * MIN
+      return maintenancePollMs(this.random)
     }
     // 正在关门（上课时间）：等到这一段结束
     const closure = cal.clubs.closures.find((c) => Date.parse(c.startsAt) <= now && now < Date.parse(c.endsAt))
@@ -221,12 +228,14 @@ export class ClubAttendance {
         return Math.min(next - now, HOUR)
       }
     }
-    // 打够了自己离开的：马上重新看一遍（今天打够了、时间段过了）；别的情况过一分钟再看
-    return (await this.play(key)) ? 1_000 : MIN
+    return this.play(key)
   }
 
-  /** 连上去打牌：断了就按规矩重连，直到打够了、关门了，或者被告知别再来。 */
-  private async play(key: string): Promise<boolean> {
+  /**
+   * 连上去打牌：断了就按规矩重连，直到打够了、关门了，或者被告知别再来。返回接下来要等多久：
+   * 打够了自己离开的马上重新看一遍（今天打够了、时间段过了），维护的过几秒看校历，别的情况过一分钟再看。
+   */
+  private async play(key: string): Promise<number> {
     let failures = 0
     while (!this.stopped) {
       let done = false
@@ -271,15 +280,15 @@ export class ClubAttendance {
       table.stop()
       this.link = null
       this.table = null
-      if (this.stopped) return false
+      if (this.stopped) return MIN
       this.d.saveResume(link.roomId ? { roomId: link.roomId, lastSeq: link.lastSeq } : null)
       if (done) {
         this.d.saveResume(null)
-        return true
+        return 1_000
       }
       if (end.unauthorized) {
         this.set('not-eligible', '学校不认这把钥匙了。')
-        return false
+        return MIN
       }
       const c = end.closing
       if (c) {
@@ -287,43 +296,44 @@ export class ClubAttendance {
         switch (c.reason) {
           case 'club_closed': {
             const reopen = c.reopensAt ? Date.parse(c.reopensAt) : NaN
-            const until = Number.isFinite(reopen) ? reopen + this.random() * 30_000 : this.now() + 10 * MIN
+            const until = (Number.isFinite(reopen) ? reopen : this.now() + 10 * MIN) + this.random() * SPREAD_MS
             this.d.saveHold({ until, reason: `社团关门了，${fmt(until)} 再开。` })
             this.d.saveResume(null)
             this.set('closed', c.message)
-            return false
+            return MIN
           }
           case 'maintenance':
-            this.d.saveHold({ until: this.now() + 5 * MIN, reason: c.message })
+            // 不按固定时间暂停：过几秒去看校历，维护期间每隔一会儿看一次，维护结束、社团开着就回来
             this.set('maintenance', c.message)
-            return false
+            return 5_000 + this.random() * 10_000
           case 'replaced': {
             const text = '同一个学生在别处也连上了社团，这台 DSH 一小时内先不去。是不是开了两个 DSH？'
             this.d.saveHold({ until: this.now() + HOUR, reason: text })
             this.d.onAlert?.(text)
             this.set('waiting', text)
-            return false
+            return MIN
           }
           case 'suspended':
           case 'expelled':
             this.d.saveHold({ until: this.now() + (c.reason === 'expelled' ? 24 : 1) * HOUR, reason: c.message })
             this.set('not-eligible', c.message)
-            return false
+            return MIN
           case 'not_member':
             this.d.saveResume(null)
             this.d.onNotMember?.(c.message)
             this.set('off', c.message)
-            return false
+            return MIN
           case 'service_stopping':
             break
         }
       }
-      // 网络断了、社团服务重启：越等越久地重连，带上 roomId 和 lastSeq（打牌中掉线座位还在）
+      // 网络断了、社团服务重启：越等越久地重连，带上 roomId 和 lastSeq（打牌中掉线座位还在）。
+      // 服务重启时大家是同一刻断开的，多随机错开一些
       failures++
       this.set('offline', '和社团的连接断了，马上重连')
-      await this.sleep(backoffMs(failures, this.random) + (c?.reason === 'service_stopping' ? 5_000 : 0))
+      await this.sleep(backoffMs(failures, this.random) + (c?.reason === 'service_stopping' ? 5_000 + this.random() * SPREAD_MS : 0))
     }
-    return false
+    return MIN
   }
 }
 

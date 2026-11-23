@@ -1,7 +1,7 @@
 // 社团循环对着假学校跑：连 /v1/club、hello 带 club、进房、叫分、一局结束、打够了离开；断开原因。
 import { afterEach, describe, expect, it } from 'vitest'
 import type { Hold } from '../src/core/attendance.js'
-import { ClubAttendance, windowOn, type ClubResume } from '../src/core/club-attendance.js'
+import { ClubAttendance, maintenancePollMs, windowOn, type ClubResume } from '../src/core/club-attendance.js'
 import type { ClubServerMessage } from '../src/core/club-protocol.js'
 import type { ClubGameRecord } from '../src/core/doudizhu.js'
 import { createSchoolHttp } from '../src/core/http.js'
@@ -116,6 +116,50 @@ describe('ClubAttendance', () => {
     u.s.sockets.at(-1)?.close()
     await waitUntil(() => u.notMember.length > 0)
     expect(u.notMember[0]).toBe('还没有入社。')
+  })
+
+  it('comes back as soon as maintenance ends instead of pausing for a fixed time', async () => {
+    const t = await setup()
+    await t.s.waitFor((m) => m.type === 'hello')
+    t.s.onHello = (ws) => {
+      t.s.push(ws, { type: 'closing', reason: 'maintenance', message: '学校在维护', expectedBackAt: new Date(Date.now() + 3_600_000).toISOString() } as never)
+      ws.close()
+    }
+    t.s.sockets.at(-1)?.close()
+    await waitUntil(() => runner!.status.phase === 'maintenance', 6000)
+    expect(t.holds).toEqual([])
+    const hellos = t.s.hellos.length
+
+    // 还在维护：看校历，不连
+    t.s.calendar = { ...t.s.calendar, maintenance: { message: '换硬盘', since: new Date().toISOString(), expectedBackAt: new Date(Date.now() + 3_600_000).toISOString() } }
+    await new Promise((r) => setTimeout(r, 50))
+    runner!.poke()
+    await waitUntil(() => runner!.status.message.includes('换硬盘'))
+    expect(t.s.hellos.length).toBe(hellos)
+
+    // 提前结束了：下一次看校历就回来
+    t.s.calendar = { ...t.s.calendar, maintenance: null }
+    t.s.onHello = () => t.push(clubWelcome())
+    await new Promise((r) => setTimeout(r, 50))
+    runner!.poke()
+    await waitUntil(() => t.s.hellos.length > hellos)
+    expect(maintenancePollMs(() => 0)).toBe(20_000)
+    expect(maintenancePollMs(() => 0.999)).toBeLessThan(40_000)
+  })
+
+  it('spreads reconnects out when the club closes without saying when it reopens', async () => {
+    const t = await setup()
+    await t.s.waitFor((m) => m.type === 'hello')
+    t.s.onHello = (ws) => {
+      t.s.push(ws, { type: 'closing', reason: 'club_closed', message: '社团关门了' } as never)
+      ws.close()
+    }
+    const before = Date.now()
+    t.s.sockets.at(-1)?.close()
+    await waitUntil(() => t.holds.length > 0, 6000)
+    // random 是 0.5：十分钟之外再错开 15 秒
+    expect(t.holds[0]!.until - before).toBeGreaterThanOrEqual(10 * 60_000 + 15_000)
+    expect(t.holds[0]!.until - Date.now()).toBeLessThanOrEqual(10 * 60_000 + 15_000)
   })
 
   it('stays away while the club is closed for lessons', async () => {
