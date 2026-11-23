@@ -174,6 +174,42 @@ describe('Attendance', () => {
     await running
   })
 
+  it('does not reconnect at once when the doors of this very lesson are not open yet', async () => {
+    // 插件按校历在 19:51 去了，上课服务还没开门：学校说下一节就是 20:00 这节
+    let refusals = 2
+    school.onHello = (ws) => {
+      if (refusals-- > 0) {
+        school.push(ws, { type: 'closing', reason: 'session_over', message: '现在不在上课时间，下一节课在 20:00 开始。', nextLessonAt: '2026-12-01T12:00:00.000Z' })
+        ws.close(1000)
+      } else school.push(ws, school.welcome())
+    }
+    const att = new Attendance({
+      http: createSchoolHttp({ base: school.base }),
+      classUrl: school.classUrl,
+      plugin,
+      maxRounds: () => 5,
+      getKey: async () => school.key,
+      classroom: () => ({ think: async () => null }),
+      onSummary: () => {},
+      loadResume: () => null,
+      saveResume: () => {},
+      knownSummaries: () => [],
+      now: () => Date.parse('2026-12-01T11:51:00Z'),
+      random: () => 0,
+    })
+    const running = att.run()
+    await new Promise((r) => setTimeout(r, 500))
+    expect(school.hellos).toHaveLength(1) // 以前会马上重连，一秒钟几十次
+    // 按 random=0 退避：1 秒后、再 2 秒后重连，第三次进了门
+    for (let i = 0; i < 80 && school.hellos.length < 3; i++) await new Promise((r) => setTimeout(r, 100))
+    expect(school.hellos).toHaveLength(3)
+    await new Promise((r) => setTimeout(r, 300))
+    expect(school.hellos).toHaveLength(3) // 进了门就待着
+    expect(att.status.phase).toBe('in-class')
+    att.stop()
+    await running
+  }, 15_000)
+
   it('remembers being replaced, so a new loop (hot reload) does not connect again before the lesson ends', async () => {
     school.onHello = (ws) => {
       school.push(ws, { type: 'closing', reason: 'replaced', message: '同一个学生在别处连上了。' })
