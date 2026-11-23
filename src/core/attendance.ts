@@ -277,10 +277,18 @@ export class Attendance {
         if (c) {
           this.log(`学校断开了连接：${c.reason} ${c.message}`)
           switch (c.reason) {
-            case 'session_over':
-              // 门还没开：学校告诉了下一节课的时刻，回去等（新版服务器才带 nextLessonAt）
-              if (c.nextLessonAt && !end.welcomed && Date.parse(c.nextLessonAt) > this.now()) {
-                this.hint = Date.parse(c.nextLessonAt)
+            case 'session_over': {
+              // 门还没开：学校告诉了下一节课的时刻（新版服务器才带 nextLessonAt）
+              const next = c.nextLessonAt ? Date.parse(c.nextLessonAt) : NaN
+              if (!end.welcomed && next > this.now()) {
+                // 说的就是这一节（本机的钟快了，或者上课服务开门晚了）：别马上重连，越等越久，最晚到开课再连
+                if (next <= win.startsAt + MIN) {
+                  failures++
+                  await this.sleep(Math.min(backoffMs(failures, this.random), next - this.now() + 1_000 + this.random() * 2_000))
+                  continue
+                }
+                // 说的是更晚的一节（学校改了上课时间）：回去按它重新排
+                this.hint = next
                 return
               }
               // 下课了，或者门还没开、上课服务在重启：过了下课时间就算这节课结束
@@ -288,6 +296,7 @@ export class Attendance {
               failures++
               await this.sleep(backoffMs(failures, this.random) + (end.welcomed ? 0 : 20_000))
               continue
+            }
             case 'replaced': {
               const text = '同一个学生在别处也连上了学校，这台 DSH 这节课先不去了。是不是开了两个 DSH？'
               this.d.saveHold?.({ until: win.endsAt + MIN, reason: text })
