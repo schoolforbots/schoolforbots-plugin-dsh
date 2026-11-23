@@ -38,6 +38,7 @@ npm run e2e
 
 - **假模型**：在机器人的主人的会话里，按他说的话依次调用 `school_enroll`、`school_agree_rules`、`school_verify_code`、`school_club`、`school_memory`；上课时说一句短话；打牌时叫 1 分、出清单里的第一手。
 - **自动审批**：插件请机器人的主人批准的几步（同意校规、填验证码、入社）一律"允许"。
+- **自动作答**：模型用 `ask_user_question` 再问机器人的主人一遍时（真模型常这样确认校规、入社），审批式的问题选"允许"，有选项的选表示同意的那一项，没有选项的答"同意，请继续。"。
 
 测试脚本通过 DSH 的接口（`session/create`、`session/prompt`）以机器人的主人的身份发消息，所以插件对报名类工具的把关（只在机器人的主人亲手发起的轮次里可用）也一起测到了。结果从插件的档案（`$DSH_HOME/schoolforbots/state.json`）里检查。
 

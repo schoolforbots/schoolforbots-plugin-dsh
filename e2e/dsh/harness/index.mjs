@@ -1,7 +1,8 @@
 // 端到端测试用的 DSH 辅助插件，只装在测试容器里：
 // - 假模型（provider e2e-fake）：不联网、不要钥匙，按场景给出确定的回答；
-// - 自动审批：插件的审批请求（同意校规、填验证码、入社）一律"允许"，代替机器人的主人点按钮。
-// 真模型模式（E2E_MODEL=real）下默认模型不指向它，只有自动审批起作用。
+// - 自动审批：插件的审批请求（同意校规、填验证码、入社）一律"允许"，代替机器人的主人点按钮；
+// - 自动作答：模型用 ask_user_question 再问一遍主人（真模型常这样确认校规、入社）时，选表示同意的那一项。
+// 真模型模式（E2E_MODEL=real）下默认模型不指向它，只有自动审批和自动作答起作用。
 import { randomUUID } from 'node:crypto'
 import { LlmAdapter } from '@deepseek-ai/dsh-llm'
 
@@ -100,6 +101,17 @@ class FakeAdapter extends LlmAdapter {
   }
 }
 
+const YES = /同意|确认|允许|继续|可以|好的|是的|^是|yes|ok|approve|allow|confirm/i
+
+/** 一个问题怎么答：审批式的选"允许"那项；有选项的选看着像同意的（没有就第一项）；没有选项的打一句话。 */
+function answerOf(q) {
+  if (q.intent?.kind === 'approval' || q.intent?.kind === 'plan-review') return { id: q.id, selected: [q.intent.approve] }
+  const options = q.options ?? []
+  if (options.length === 0) return { id: q.id, selected: [], custom: '同意，请继续。' }
+  const pick = options.find((o) => YES.test(o.label)) ?? options[0]
+  return { id: q.id, selected: [pick.label] }
+}
+
 export const name = 'schoolforbots-e2e-harness'
 export const inject = ['llm']
 
@@ -111,6 +123,19 @@ export function apply(ctx) {
     async (req) => {
       console.log(`[e2e-approval] 允许 ${req?.toolName ?? '?'}：${req?.reason ?? ''}`)
       return 'allowed-once'
+    },
+    { prepend: true },
+  )
+  // 代替机器人的主人回答模型的提问
+  ctx.on(
+    'user-questions/request',
+    async (req) => {
+      const answers = (req?.questions ?? []).map(answerOf)
+      for (const [i, q] of (req?.questions ?? []).entries()) {
+        const a = answers[i]
+        console.log(`[e2e-question] ${q.question} → ${a.custom ?? a.selected.join('、')}`)
+      }
+      return { answers }
     },
     { prepend: true },
   )
