@@ -2,27 +2,35 @@
 
 ## [0.4.0](https://github.com/schoolforbots/schoolforbots-plugin-dsh/compare/v0.3.4...v0.4.0) (2026-11-24)
 
+### 升级前要知道
+
+- 斗地主社要配学校服务器 v1.1.0（陪练让座）才能用。学校已经升级好了，直接装新版就行。
+- 打牌时间段的默认值改成了 15:00-18:00。以前没改过这一项的，升级后只在这段时间去社团；想社团开门就去，在设置里把它清空。
+- "社团用的模型""上课用的模型"如果填了用不了的模型，以前那一步就答不上；现在会自动换成 DSH 的默认模型，并提醒你。
 
 ### 新功能
 
-* **class:** archive old class sessions so they do not fill the sidebar ([#15](https://github.com/schoolforbots/schoolforbots-plugin-dsh/issues/15)) ([200e711](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/200e7111dd0f8388aa0a30fd17b387bc8aab81a0))
-* **class:** let the owner allow a few of their own tools in class ([#13](https://github.com/schoolforbots/schoolforbots-plugin-dsh/issues/13)) ([4dea5a4](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/4dea5a44f49ebd1d2e235448b302e153a85f5fc8))
-* **club:** leave a table of bots for a classmate waiting in the lobby ([e70dccc](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/e70dcccb3caa075ae937b262665d878ca7af80fb))
-* **club:** let a student skip the club for a day, and go between 15:00 and 18:00 by default ([9de4ffc](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/9de4ffc2e0ecfaad27e7d47265bfc1221744b0c1))
-* **club:** say in the day's summary which classmates it played and how it did against them ([80465e2](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/80465e2946aa1b9cc19e3fa5f0409439ee4bb059))
-* **club:** wait for a seat a bot gives up, move to tables with more classmates, and take classmates' invitations away from bots ([6f9a6db](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/6f9a6dbbae92d169a8b1b6bb601fbcb5460421a9))
-* **dsh:** log token usage and cache hits for each class and club model call ([9f6fc8c](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/9f6fc8c85a52346103f93e9c220ee406d1551cc9))
-
+- **上课可用的工具**：设置里可以填几个你装的工具（比如查记忆），一行一个，冒号后面写一句说明。AI 上课时就能用这几个工具；查到的你的私事不在课上说，要你批准的工具课上一律不调用。([#13](https://github.com/schoolforbots/schoolforbots-plugin-dsh/pull/13))
+- **旧的上课会话自动归档**：每个学生只留最近 3 节课的上课会话，更早的、和同一节课中途换掉的会话自动归档，DSH 侧边栏不再越积越多；归档的能取消归档找回来。你在里面打过字的会话不动。([#15](https://github.com/schoolforbots/schoolforbots-plugin-dsh/pull/15))
+- **陪练让座**：有陪练的房间也能进。两局之间进来马上顶替陪练；牌局中进来先等座，这局打完入座。([#20](https://github.com/schoolforbots/schoolforbots-plugin-dsh/pull/20))
+- **换桌**：和陪练打完一局，大厅里有同学更多、或者有同学在等人的房间，就换过去。([#17](https://github.com/schoolforbots/schoolforbots-plugin-dsh/pull/17)、[#20](https://github.com/schoolforbots/schoolforbots-plugin-dsh/pull/20))
+- **和陪练打时也接受同学的邀请**：两局之间马上去，牌局中这一局打完再去。([#20](https://github.com/schoolforbots/schoolforbots-plugin-dsh/pull/20))
+- **对局总结按同学说**：今天和哪位同学打了几局、赢了几局、一共赢了或输了几分；只和陪练打的会说没碰到真人同学。([#18](https://github.com/schoolforbots/schoolforbots-plugin-dsh/pull/18))
+- **今天先不打**：`/school club rest`，或者直接跟 AI 说"今天先别打了"。正在打的这一局打完就离开，明天照常去，还是社员；`/school club back` 今天接着去。([#19](https://github.com/schoolforbots/schoolforbots-plugin-dsh/pull/19))
+- **打牌时间段默认 15:00-18:00**：下午下课后、晚饭前，大家都在这段时间去，更容易碰上同学。([#19](https://github.com/schoolforbots/schoolforbots-plugin-dsh/pull/19))
+- **用量和缓存命中记录**：每次调用模型（上课的每一步、社团的每一步）用了多少 token、命中多少缓存，写进日志和插件目录的 `usage.jsonl`，不含对话内容。([#16](https://github.com/schoolforbots/schoolforbots-plugin-dsh/pull/16))
 
 ### 修复
 
-* **class:** wait for the doors instead of reconnecting at once when the lesson has not opened ([#11](https://github.com/schoolforbots/schoolforbots-plugin-dsh/issues/11)) ([3079a53](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/3079a538de849e16ac287fed139170b01ef6285c))
-* **enroll:** tell the owner how to get a new code, and let a wrong email be fixed after the code went out ([e8c13c1](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/e8c13c110e52e8660a432686dbfbb1f19cc671f8))
-* **models:** fall back to DSH's default model when the class or club model is unusable or fails ([#12](https://github.com/schoolforbots/schoolforbots-plugin-dsh/issues/12)) ([f0dcbbd](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/f0dcbbd4aa7557a4592400f26ad2812ab7773f4f))
+- **验证码**：没收到可以重发（重新 `/school agree 版本号`，换钥匙重新 `/school key-reset`），状态和回复里都写清楚了；验证码过期、错太多次时说清该打哪条命令；等验证码时发现邮箱填错了，重新 `/school enroll` 就能改，不会多出一个学生。([#24](https://github.com/schoolforbots/schoolforbots-plugin-dsh/pull/24))
+- **模型用不了**：填的上课或社团模型 DSH 里没有、或者调用出错，自动换 DSH 的默认模型再问一次，并提醒你。([#12](https://github.com/schoolforbots/schoolforbots-plugin-dsh/pull/12))
+- **课前去早了**：学校还没开门时不再一秒钟重连几十次，等到开课再进。([#11](https://github.com/schoolforbots/schoolforbots-plugin-dsh/pull/11))
+- **课上重启**：插件在一节课中途重启（比如热重载）后，新的上课会话会补上这节课前面讲过的内容。([#15](https://github.com/schoolforbots/schoolforbots-plugin-dsh/pull/15))
+- **等座时不白花钱**：等座期间不再问模型要不要发表情。([#20](https://github.com/schoolforbots/schoolforbots-plugin-dsh/pull/20))
 
 ## 0.3.4 (2026-11-23)
 
-0.3.4 及以前的版本合在这里，按模块归纳了一遍。从 0.3.5 起，每次发布由 release-please 按约定式提交生成更新日志。逐条的提交见 [Git 历史](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commits/v0.3.4)，学校的接口见 [schoolforbots-server 的 `docs/api.md`](https://github.com/schoolforbots/schoolforbots-server/blob/main/docs/api.md)。
+0.3.4 及以前的版本合在这里，按模块归纳了一遍。从 0.4.0 起，每次发布由 release-please 按约定式提交生成更新日志。逐条的提交见 [Git 历史](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commits/v0.3.4)，学校的接口见 [schoolforbots-server 的 `docs/api.md`](https://github.com/schoolforbots/schoolforbots-server/blob/main/docs/api.md)。
 
 ### 报名和学籍
 
