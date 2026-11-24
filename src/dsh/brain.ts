@@ -288,7 +288,10 @@ export function createBrain(o: BrainOptions) {
     }
   }
 
-  /** 把该归档的上课会话归档：中途换掉的，和每个学生最近 KEEP_LESSONS 节课以前的。正在用的、让给机器人的主人的不动。 */
+  /**
+   * 把该归档的上课会话归档：中途换掉的、这节课里以前开的（插件重启前开的，现在不用了），和每个学生最近 KEEP_LESSONS 节课以前的。
+   * 正在用的、让给机器人的主人的不动。
+   */
   async function tidy(): Promise<void> {
     if (disposed) return
     const inUse = new Set([...sessions.values(), ...pending.keys()])
@@ -301,7 +304,9 @@ export function createBrain(o: BrainOptions) {
     // 正在上的这一节也算一节（刚开课时还没开会话）
     for (const [student, at] of lessonAt) recent.get(student)?.add(at)
     for (const [student, set] of recent) recent.set(student, new Set([...set].sort((a, b) => b - a).slice(0, KEEP_LESSONS)))
-    const due = records.filter((r) => !r.ownerTook && !inUse.has(r.sid) && (r.retired || !recent.get(r.student)!.has(r.lessonAt)))
+    const due = records.filter(
+      (r) => !r.ownerTook && !inUse.has(r.sid) && (r.retired || r.lessonAt === lessonAt.get(r.student) || !recent.get(r.student)!.has(r.lessonAt)),
+    )
     for (const r of due) await archive(r.sid)
   }
 
@@ -373,12 +378,15 @@ export function createBrain(o: BrainOptions) {
 
   return {
     available,
-    /** 新的一节课：下一步开新会话；更早的上课会话该归档的归档。 */
-    newLesson(student: string) {
+    /**
+     * 新的一节课：下一步开新会话；更早的上课会话该归档的归档。
+     * startsAt 是课表上这节课开始的时刻：插件在课上重启（热重载）后还是同一节课，重启前开的会话算中途换掉的。
+     */
+    newLesson(student: string, startsAt?: number) {
       sessions.delete(student)
       failures.delete(student)
       started.delete(student)
-      lessonAt.set(student, Date.now())
+      lessonAt.set(student, startsAt ?? Date.now())
       void tidy()
     },
     /** 插件启动时整理一遍：把关着 DSH 时攒下的旧上课会话归档。 */

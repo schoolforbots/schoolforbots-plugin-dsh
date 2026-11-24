@@ -98,6 +98,27 @@ describe('archiving class sessions', () => {
     expect(saved.map((r) => r.sid)).toEqual(['old2', 'old3', 'old4', 'mine'])
   })
 
+  it('counts a lesson resumed after a restart as the same lesson, and archives the session from before the restart', async () => {
+    const startsAt = Date.parse('2026-12-01T12:00:00Z')
+    const before = setup()
+    before.brain.newLesson('ai1', startsAt - 86_400_000)
+    await before.step()
+    before.brain.newLesson('ai1', startsAt)
+    await before.step()
+    const [yesterday, beforeRestart] = before.sids()
+    before.brain.dispose()
+
+    // 热重载：新的 brain 读同一份存档，同一节课再开一次
+    const after = setup()
+    after.brain.newLesson('ai1', startsAt)
+    await tick()
+    await after.step()
+    await tick()
+    expect(dsh.archived).toEqual([beforeRestart])
+    expect(saved.map((r) => r.sid)).toEqual([yesterday, after.sids()[2]])
+    expect(new Set(saved.map((r) => r.lessonAt)).size).toBe(2)
+  })
+
   it('stops keeping track of a session it cannot archive', async () => {
     saved = [
       { sid: 'gone', student: 'ai1', lessonAt: 1, retired: true },

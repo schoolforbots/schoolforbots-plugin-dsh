@@ -195,7 +195,7 @@ export class School {
       maxRounds: () => this.cfg.maxRounds,
       getKey: () => this.host.secrets.get(keyName(s.aiId)),
       classroom: (win) => {
-        this.host.newLesson(s.aiId)
+        this.host.newLesson(s.aiId, win.startsAt)
         const title = `机器人网校 · ${win.date.slice(5)} · ${s.aiName}`
         return {
           think: (req) => this.host.think(s.aiId, title, req),

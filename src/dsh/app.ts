@@ -70,7 +70,7 @@ export function createApp(d: AppDeps) {
   const school = new School(
     {
       think: (student, title, req) => d.brain.think(student, title, req),
-      newLesson: (student) => d.brain.newLesson(student),
+      newLesson: (student, startsAt) => d.brain.newLesson(student, startsAt),
       canThink: () => d.brain.available(),
       ...(d.asker
         ? {
