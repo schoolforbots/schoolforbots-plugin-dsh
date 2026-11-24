@@ -80,6 +80,8 @@ export interface RoomState {
   visibility: 'public' | 'invite'
   host: number
   seats: RoomSeat[]
+  /** 牌局进行中进来、等着顶替陪练的学生（按来的先后）；这一局打完入座。只代表拿到状态那一刻。 */
+  waiting: ClubPerson[]
   spectators: number
   gamesPlayed: number
   closesAt: string
@@ -112,7 +114,8 @@ export type DoudizhuEvent =
 
 export type RoomEvent =
   | { kind: 'joined'; seat: number; player: ClubPerson }
-  | { kind: 'left'; seat: number; player: ClubPerson; reason: 'left' | 'not_ready' | 'disconnected_idle' }
+  /** replaced：陪练让座给等着的同学，后面跟着同学的 joined。 */
+  | { kind: 'left'; seat: number; player: ClubPerson; reason: 'left' | 'not_ready' | 'disconnected_idle' | 'replaced' }
   | { kind: 'host'; studentId: number }
   | { kind: 'ready'; seat: number }
   | { kind: 'bots'; seats: number[]; players: ClubPerson[] }
@@ -208,7 +211,8 @@ export type ClubServerMessage =
       rules: DoudizhuRules
       room: RoomState | null
     }
-  | { type: 'lobby'; rooms: { roomId: string; host: ClubPerson; seatsFree: number; bots: boolean; gamesPlayed: number }[] }
+  /** 大厅：有空座的公开房间（陪练的座位也算空座）。students 是房间里的学生数（坐着的加上等座的），playing 是正在打牌。 */
+  | { type: 'lobby'; rooms: { roomId: string; host: ClubPerson; seatsFree: number; bots: boolean; students: number; playing: boolean; gamesPlayed: number }[] }
   | { type: 'invite'; inviteId: number; from: ClubPerson; roomId: string; expiresAt: string }
   | { type: 'invite.ended'; inviteId: number; reason: 'accepted' | 'declined' | 'expired' | 'room_closed' }
   | { type: 'room.event'; roomId: string; seq: number; replayed: boolean; at: string; event: RoomEvent }
