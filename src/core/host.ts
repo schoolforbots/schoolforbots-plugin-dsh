@@ -28,7 +28,7 @@ export interface SchoolHost {
    * 社团用：无状态地问一次模型（不开会话、不写进任何聊天记录、不挂工具）。system 是人设加"在社团"的说明，
    * prompt 自带完整局面。deadline（绝对时刻）前没答完、出错都返回 null。宿主做不到时不提供这个方法，社团就不去。
    */
-  ask?(student: string, req: { system: string; prompt: string; deadline: number }): Promise<string | null>
+  ask?(student: string, req: { system: string; prompt: string; deadline: number; purpose?: 'turn' | 'react' }): Promise<string | null>
   /** 新的一节课开始了（宿主可以换一个新会话）。 */
   /** @param startsAt 这节课开始的时刻（学校的课表）：同一节课重启以后还是这个值 */
   newLesson(student: string, startsAt?: number): void

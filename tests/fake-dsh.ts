@@ -41,6 +41,8 @@ export interface FakeDsh {
   archived: string[]
   /** 归档时报错。 */
   archiveFails: boolean
+  /** assistant/message 里带的用量（照真 DSH）。 */
+  usage: Record<string, number> | null
   /** 别的插件注册的全局工具名（ctx.tools.definitions() 里有，restrict 认得）。 */
   globalTools: string[]
   /** 在会话 sid 里调一次工具：跑一遍 tools/pre-execute，最里面的默认决定是 base。 */
@@ -141,7 +143,7 @@ export function createFakeDsh(): FakeDsh {
             return
           }
           const text = fake.reply(msg.content[0]!.text, sid)
-          emit('session/event', session, { type: 'assistant/message', data: { turn: t, message: { content: [{ type: 'text', text }] } } })
+          emit('session/event', session, { type: 'assistant/message', data: { turn: t, message: { content: [{ type: 'text', text }] }, ...(fake.usage ? { usage: fake.usage } : {}) } })
           emit('session/event', session, { type: 'turn/end', data: { turn: t, reason: { kind: 'completed' } } })
         })()
       },
@@ -211,6 +213,7 @@ export function createFakeDsh(): FakeDsh {
     globalTools: [],
     archived: [],
     archiveFails: false,
+    usage: null,
     async preExecute(sid, name, base = { kind: 'allow' }) {
       const list = [...(listeners.get('tools/pre-execute') ?? [])]
       const chain = [...list.filter((l) => l.prepend).reverse(), ...list.filter((l) => !l.prepend)]
