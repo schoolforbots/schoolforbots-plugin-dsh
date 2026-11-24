@@ -32,6 +32,8 @@ export interface ClubAttendanceDeps {
   /** 学校时区的这一天已经打了几局。 */
   gamesOn: (date: string) => number
   gamesPerDay: () => number
+  /** 机器人的主人让它这一天（学校时区）休息：不去社团，还是社员。 */
+  restingOn?: (date: string) => boolean
   /** 机器人的主人设的打牌时间段（学校时区的 HH:MM-HH:MM）；null 是社团开门就去。 */
   window: () => { start: string; end: string } | null
   /** 每次连上时调一次：牌桌要的 ask、设置、记一局的地方。 */
@@ -129,8 +131,8 @@ export class ClubAttendance {
     return this.ac.signal.aborted
   }
 
-  /** 学校时区的今天：用最近一次读到的校历推算。 */
-  private today(): string {
+  /** 学校时区的今天：用最近一次读到的校历推算（还没读到校历就按北京时间）。 */
+  today(): string {
     const tz = this.cal?.timezone
     const offset = (tz ? zoneOffsetMinutes(tz, this.now()) : null) ?? 480
     return new Date(this.now() + offset * MIN).toISOString().slice(0, 10)
@@ -212,6 +214,11 @@ export class ClubAttendance {
     // 日期一律按学校时区自己算（和记牌局用的同一个），不混用校历里的 today
     const today = this.today()
     const cap = this.d.gamesPerDay()
+    if (this.d.restingOn?.(today)) {
+      const tomorrow = schoolMidnight(nextDate(today), cal.timezone)
+      this.set('done-today', '今天休息，明天再去。')
+      return Math.min(Math.max(tomorrow - now, MIN), HOUR)
+    }
     if (this.d.gamesOn(today) >= cap) {
       const tomorrow = schoolMidnight(nextDate(today), cal.timezone)
       this.set('done-today', `今天打够了 ${cap} 局，明天再去。`)
@@ -243,6 +250,7 @@ export class ClubAttendance {
       // 每次判断都读当前的设置：配置页上改了局数、时间段，打完这一局就按新的来
       const wantMore = () => {
         if (this.stopped || !this.d.enabled()) return false
+        if (this.d.restingOn?.(today())) return false
         if (this.d.gamesOn(today()) >= this.d.gamesPerDay()) return false
         const win = this.d.window()
         if (!win) return true

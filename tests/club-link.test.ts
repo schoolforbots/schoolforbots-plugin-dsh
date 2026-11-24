@@ -17,7 +17,7 @@ afterEach(async () => {
   school = null
 })
 
-async function setup(o: { gamesPerDay?: number; resume?: ClubResume | null; answers?: string[] } = {}) {
+async function setup(o: { gamesPerDay?: number; resume?: ClubResume | null; answers?: string[]; resting?: () => boolean } = {}) {
   school = await startMockSchool()
   const s = school
   s.calendar = { ...s.calendar, timezone: 'Asia/Shanghai', clubs: { enabled: true, closures: [] } }
@@ -43,6 +43,7 @@ async function setup(o: { gamesPerDay?: number; resume?: ClubResume | null; answ
     enabled: () => true,
     gamesOn: (date) => games.filter((g) => g.date === date).length,
     gamesPerDay: () => o.gamesPerDay ?? 1,
+    ...(o.resting ? { restingOn: () => o.resting!() } : {}),
     window: () => null,
     table: () => ({
       ask: async () => answers.shift() ?? null,
@@ -72,6 +73,26 @@ const waitUntil = async (pred: () => boolean, ms = 4000) => {
 }
 
 describe('ClubAttendance', () => {
+  it('does not go on a day the owner said to rest', async () => {
+    await setup({ resting: () => true })
+    await waitUntil(() => runner!.status.phase === 'done-today')
+    expect(runner!.status.message).toBe('今天休息，明天再去。')
+    expect(school!.hellos).toHaveLength(0)
+  })
+
+  it('leaves after the game being played when told to rest in the middle of it', async () => {
+    let resting = false
+    const t = await setup({ gamesPerDay: 5, resting: () => resting })
+    await t.s.waitFor((m) => (m.type as string) === 'room.quick')
+    t.push({ type: 'room.event', roomId: 'r7k2q', seq: 4, replayed: false, at: '', event: { kind: 'game', game: 'doudizhu', event: { kind: 'dealt', gameId: 1024, seats: [P52, P61, ME], firstBidder: 2 } } })
+    resting = true
+    t.push({ type: 'room.event', roomId: 'r7k2q', seq: 30, replayed: false, at: '', event: { kind: 'game', game: 'doudizhu', event: { kind: 'over', result: result({ landlord: 2, scores: [-3, -3, 6] }) } } })
+    await t.s.waitFor((m) => (m.type as string) === 'room.leave')
+    expect(t.games).toHaveLength(1)
+    await waitUntil(() => runner!.status.phase === 'done-today')
+    expect(runner!.status.message).toBe('今天休息，明天再去。')
+  })
+
   it('connects to /v1/club, joins a room, bids, records the game and leaves once it has played enough', async () => {
     const t = await setup({ gamesPerDay: 1 })
     const hello = (await t.s.waitFor((m) => m.type === 'hello')) as unknown as { club: string; plugin: unknown; roomId?: string }

@@ -78,7 +78,8 @@ export const DEFAULT_SCHOOL_CONFIG: SchoolConfig = {
   afternoon: '15:00-15:30',
   evening: '20:00-20:30',
   clubGamesPerDay: 6,
-  clubHours: '',
+  // 下午下课以后、晚饭以前：大家都在这段时间去，更容易碰上真人同学
+  clubHours: '15:00-18:00',
   clubJoin: DEFAULT_CLUB_SETTINGS.join,
   clubInvites: DEFAULT_CLUB_SETTINGS.invites,
   clubIdle: DEFAULT_CLUB_SETTINGS.idle,
@@ -110,7 +111,7 @@ export type AgentAction =
   | { verb: 'enroll'; fields: [email: string, ownerName: string, aiName: string, division: string, slot: string] }
   | { verb: 'agree'; version: string }
   | { verb: 'code'; code: string }
-  | { verb: 'club'; sub?: 'on' | 'off' }
+  | { verb: 'club'; sub?: 'on' | 'off' | 'rest' | 'back' }
 
 export function slotTime(s: string): SlotTime | undefined {
   const m = /^\s*(\d{1,2}:\d{2})\s*[-~～—]\s*(\d{1,2}:\d{2})\s*$/.exec(s)
@@ -272,6 +273,7 @@ export class School {
       getKey: () => this.host.secrets.get(keyName(s.aiId)),
       enabled: () => this.cfg.enabled && s.club.enabled,
       gamesOn: (date) => clubGamesOn(s.diary, date).length,
+      restingOn: (date) => s.club.restOn === date,
       gamesPerDay: () => Math.max(0, Math.floor(this.cfg.clubGamesPerDay)),
       window: () => (this.cfg.clubHours.trim() ? slotTime(this.cfg.clubHours) ?? null : null),
       table: () => ({
@@ -313,6 +315,16 @@ export class School {
   pokeAll(): void {
     for (const r of this.runners.values()) r.poke()
     for (const r of this.clubRunners.values()) r.poke()
+  }
+
+  /** 学校时区的今天（社团循环按最近读到的校历算；它没在跑就按北京时间）。 */
+  private clubToday(s: StudentRecord): string {
+    return this.clubRunners.get(s.aiId)?.today() ?? new Date(Date.now() + 8 * 60 * 60_000).toISOString().slice(0, 10)
+  }
+
+  /** 让这个学生的社团循环马上重新看一遍（休息、取消休息）。 */
+  private pokeClub(s: StudentRecord): void {
+    this.clubRunners.get(s.aiId)?.poke()
   }
 
   clubStatusOf(s: StudentRecord): ClubStatus | null {
@@ -470,6 +482,7 @@ export class School {
       `${cmd} rename 主人名 AI名       改名`,
       `${cmd} on | off                让 AI 去上学 / 先不去`,
       `${cmd} club [on | off]          斗地主社：看战绩，入社 / 退社（入社后课余会去打牌，要一直开着 DSH，也花模型的钱）`,
+      `${cmd} club rest | back       斗地主社：今天先不去（还是社员，明天照常）/ 今天接着去`,
       `${cmd} club rank               斗地主社本周的排行榜`,
       `${cmd} key-reset               钥匙丢了：换一把（验证码发到报名邮箱）`,
       `${cmd} withdraw 确认            退学（让出座位）`,
@@ -766,6 +779,23 @@ export class School {
       this.sync()
       return { ok: true, text: '退社了。战绩还留着，以后可以再入社。' }
     }
+    if (sub === 'rest' || sub === 'back') {
+      // 只记在插件这边：不通知学校，还是社员
+      if (!s.club.enabled) return { ok: false, text: `它没有入社，不用休息。入社：${cmd} club on` }
+      const today = this.clubToday(s)
+      if (sub === 'rest') {
+        if (s.club.restOn === today) return { ok: true, text: '今天已经在休息了。' }
+        s.club.restOn = today
+        this.save()
+        this.pokeClub(s)
+        return { ok: true, text: `好，今天（${today}）不去斗地主社了，正在打的这一局打完就离开；明天照常去。还是社员。想今天接着打：${cmd} club back` }
+      }
+      if (s.club.restOn !== today) return { ok: true, text: '今天本来就没在休息。' }
+      s.club.restOn = null
+      this.save()
+      this.pokeClub(s)
+      return { ok: true, text: '好，今天接着去斗地主社。' }
+    }
     if (sub === 'rank') {
       // 只有本周榜；以前的 `rank all` / `rank 总榜` 不再有
       if (arg && arg !== 'week' && arg !== '本周') return { ok: false, text: `斗地主社只有本周的排行榜，每周一清零：${cmd} club rank` }
@@ -778,7 +808,7 @@ export class School {
       if (r.me) lines.push(`它：${line(r.me)}`)
       return { ok: true, text: lines.join('\n') }
     }
-    if (sub) return { ok: false, text: `格式：${cmd} club [on | off | rank]` }
+    if (sub) return { ok: false, text: `格式：${cmd} club [on | off | rest | back | rank]` }
     const [m, st] = await Promise.all([this.http.clubMembership(key), this.http.clubStats(key)])
     const mismatch = s.club.enabled !== m.member ? `（插件这边的开关是${s.club.enabled ? '开' : '关'}着的）` : ''
     const lines = [`斗地主社：${m.member ? '已入社' : '没有入社'}${mismatch}`]
