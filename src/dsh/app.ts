@@ -4,6 +4,7 @@ import { writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DEFAULT_SCHOOL_CONFIG, School, type AgentAction, type SchoolConfig } from '../core/school.js'
+import type { ClassTool } from '../core/class-tools.js'
 import type { MemoryScope } from '../core/diary.js'
 import type { SchoolHttp } from '../core/http.js'
 import type { Secrets } from '../core/students.js'
@@ -27,10 +28,12 @@ export interface AppConfig extends SchoolConfig {
   classModel: string
   /** 社团用的模型（provider/model）；空就用上课的模型，再没有用 DSH 的默认模型。 */
   clubModel: string
+  /** 上课时放开的工具：一行一个，冒号后面可以写一句说明（core/class-tools.ts）。 */
+  classTools: string
   preset: string
 }
 
-export const DEFAULT_CONFIG: AppConfig = { ...DEFAULT_SCHOOL_CONFIG, classModel: '', clubModel: '', preset: 'schoolforbots' }
+export const DEFAULT_CONFIG: AppConfig = { ...DEFAULT_SCHOOL_CONFIG, classModel: '', clubModel: '', classTools: '', preset: 'schoolforbots' }
 
 export interface AppDeps {
   config: AppConfig
@@ -249,7 +252,7 @@ export function createApp(d: AppDeps) {
     school,
     http: school.http,
     sync: () => school.sync(),
-    classPrompt: () => school.classPrompt(),
+    classPrompt: (tools: ClassTool[] = []) => school.classPrompt(tools),
     noteSource,
     tools,
     memoryTool,

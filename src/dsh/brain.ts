@@ -4,7 +4,8 @@
 // 几条约束：
 // - 课堂绝不进机器人的主人的聊天会话；会话建在插件自己的工作区，工作区名字写明"别在这里聊天"。
 // - 不预先建空会话（DSH 的"新会话"会接手它）；每一步发之前都检查会话是不是插件建的、机器人的主人有没有在里面说过话。
-// - 上课会话里藏掉所有全局工具（allow: []）：同学的话再怎么写，这个会话也做不了任何事。藏不住就不用这个会话。
+// - 上课会话里藏掉所有全局工具，只留机器人的主人在设置里放开的几个（class-tools.ts）：同学的话再怎么写，这个会话也只能用这几个工具。
+//   藏不住就不用这个会话；放开的名单变了，换新会话。要机器人的主人批准的调用课上直接拒绝（没人点"允许"），一步最多调 MAX_TOOL_CALLS 次。
 // - 别的插件在 agent/pre-step 往上课会话里塞的消息（比如记忆插件塞机器人的主人的记忆）去掉，只留我们自己的和 runtime-context。
 // - 上课用的模型先查能不能用，不能用就用 DSH 的默认模型；这一轮模型出错，时间还够就换默认模型、开新会话再问一次（models.ts）。
 //
@@ -25,6 +26,8 @@ const ROOM_TITLE = '机器人网校 · 插件自用（别在这里聊天）'
 const KEEP_KINDS = new Set([SOURCE_KIND, 'runtime-context'])
 /** 同一个学生连续这么多步出错，就告诉机器人的主人。 */
 const TROUBLE_AFTER = 3
+/** 一步里最多调几次工具。 */
+const MAX_TOOL_CALLS = 3
 /** 模型出错以后，至少还剩这么久才换默认模型再问一次。 */
 const RETRY_MIN_MS = 3_000
 
@@ -44,6 +47,8 @@ export interface BrainOptions {
   onTrouble?: (student: string, text: string) => void
   /** 查模型、换默认模型（和社团共用）。不给就自己建一个（不告诉机器人的主人）。 */
   picker?: Models
+  /** 给这个学生开上课会话时放开哪些工具（名字）；不给就一个都不放开。 */
+  tools?: (student: string) => string[]
 }
 
 interface Pending {
@@ -72,7 +77,10 @@ export function createBrain(o: BrainOptions) {
   const lost = new Set<string>() // 机器人的主人说过话、超时取消过、藏不住工具的会话：以后不再用
   const pending = new Map<string, Pending>()
   const chains = new Map<string, Promise<unknown>>()
-  const restricted = new WeakSet<Agent>()
+  /** 已经限好工具的会话：放开了哪些（排好序、逗号连起来）。 */
+  const restricted = new WeakMap<Agent, string>()
+  /** 上课会话这一步调了几次工具。 */
+  const toolCalls = new Map<string, number>()
   const failures = new Map<string, number>()
   /** 这节课已经开过会话的学生：再开新会话时要补上前面的事。 */
   const started = new Set<string>()
@@ -109,20 +117,35 @@ export function createBrain(o: BrainOptions) {
     throw new Error(r?.error?.message || '恢复会话失败')
   }
 
-  /** 藏掉所有全局工具。每个 agent 对象只藏一次；藏不住返回 false（这个会话不能用来上课）。 */
-  function hideTools(agent: Agent): boolean {
-    if (restricted.has(agent)) return true
+  /**
+   * 藏掉全局工具，只留 allow 里的。每个 agent 对象只限一次；藏不住返回 false（这个会话不能用来上课）。
+   * 已经限过、但放开的名单不一样了，也返回 false：换新会话。
+   */
+  function hideTools(agent: Agent, allow: string[]): boolean {
+    const key = [...allow].sort().join(',')
+    const done = restricted.get(agent)
+    if (done !== undefined) return done === key
+    const tools = agent.ctx?.tools
+    if (typeof tools?.restrict !== 'function') return false
     try {
-      const tools = agent.ctx?.tools
-      if (typeof tools?.restrict !== 'function') return false
       // 要当方法调：DSH 的 restrict 里用 this.ctx，单独取出来调用会抛错
-      tools.restrict({ allow: [] })
-      restricted.add(agent)
-      return true
+      tools.restrict({ allow })
     } catch (error) {
-      o.log.warn('上课会话藏不住工具，这个会话不用：', (error as Error)?.message)
-      return false
+      if (!allow.length) {
+        o.log.warn('上课会话藏不住工具，这个会话不用：', (error as Error)?.message)
+        return false
+      }
+      // 放开的工具刚好没了（插件卸载之类）：一个都不放开
+      o.log.warn('上课会话放开工具失败，这个会话不放开工具：', (error as Error)?.message)
+      try {
+        tools.restrict({ allow: [] })
+      } catch (again) {
+        o.log.warn('上课会话藏不住工具，这个会话不用：', (again as Error)?.message)
+        return false
+      }
     }
+    restricted.set(agent, key)
+    return true
   }
 
   /** 这一步用哪个模型：设置里填的能用就用它，不然用 DSH 的默认模型（会话里换回来，免得留着上一步的）。 */
@@ -151,11 +174,12 @@ export function createBrain(o: BrainOptions) {
   }
 
   async function sessionFor(student: string, title: string): Promise<{ sid: string; agent: Agent; fresh?: boolean }> {
+    const allow = o.tools?.(student) ?? []
     const existing = sessions.get(student)
     if (existing) {
       try {
         const agent = await resolveAgent(existing)
-        if (clean(agent, existing) && hideTools(agent)) return { sid: existing, agent }
+        if (clean(agent, existing) && hideTools(agent, allow)) return { sid: existing, agent }
       } catch (error) {
         o.log.info(`上课会话恢复不了（${(error as Error).message}），新开一个`)
       }
@@ -171,7 +195,7 @@ export function createBrain(o: BrainOptions) {
       lost.add(sid)
       throw new Error('DSH 交回来的不是一个干净的新会话，这一步不答')
     }
-    if (!hideTools(agent)) {
+    if (!hideTools(agent, allow)) {
       lost.add(sid)
       throw new Error('上课会话藏不住工具（DSH 版本不支持 tools.restrict），这一步不答')
     }
@@ -255,6 +279,7 @@ export function createBrain(o: BrainOptions) {
         resolveText(null)
       }, left)
       pending.set(sid, { student, msgId: msg.id, armed: false, turn: null, text: '', choice, resolve: resolveText, timer })
+      toolCalls.set(sid, 0)
     })
     useModel(agent, choice)
     send(agent, msg)
@@ -263,6 +288,7 @@ export function createBrain(o: BrainOptions) {
 
   function settle(sid: string, p: Pending, text: string | null | ModelFailed): void {
     pending.delete(sid)
+    toolCalls.delete(sid)
     clearTimeout(p.timer)
     p.resolve(text)
   }
@@ -290,8 +316,26 @@ export function createBrain(o: BrainOptions) {
       return run
     },
     isSchoolSession: (sid: string) => ours.has(sid),
-    /** 挂到 agent/pre-step 上：上课会话里只留我们自己的消息和 runtime-context。 */
+    /**
+     * 挂到 agent/pre-step 上：上课会话里只留我们自己的消息和 runtime-context。
+     * 挂到 tools/pre-execute 上：上课会话里要批准的调用直接拒绝，一步调工具的次数有上限。
+     */
     attach(ctx: DshContext): void {
+      ctx.on(
+        'tools/pre-execute',
+        async (exec: { name?: string; agent?: Agent }, next: () => Promise<{ kind: string }>) => {
+          const sid = String(exec?.agent?.session?.id ?? exec?.agent?.id ?? '')
+          if (!sid || !ours.has(sid) || lost.has(sid)) return next()
+          const n = (toolCalls.get(sid) ?? 0) + 1
+          toolCalls.set(sid, n)
+          if (n > MAX_TOOL_CALLS) return { kind: 'deny', reason: `这一步已经调了 ${MAX_TOOL_CALLS} 次工具，不能再调了。直接用你现在知道的回答。` }
+          const decision = await next()
+          // 课上没人能点"允许"：等下去只会超时
+          if (decision?.kind === 'ask') return { kind: 'deny', reason: '这个工具要你的主人批准才能用，上课时没人批准，这次不调用。直接用你现在知道的回答。' }
+          return decision
+        },
+        { prepend: true },
+      )
       ctx.on(
         'agent/pre-step',
         async (payload: PreStepPayload, next: () => Promise<PreStepDecision>) => {

@@ -37,6 +37,7 @@ type Field = { key: string; label: string; help: string; when: string } & (
   | { kind: 'chance' }
   | { kind: 'int'; min: number; max: number }
   | { kind: 'text'; placeholder?: string; pattern?: RegExp; patternHelp?: string }
+  | { kind: 'lines'; placeholder?: string; rows: number }
   | { kind: 'select'; options: [string, string][] }
 )
 
@@ -54,6 +55,15 @@ const GROUPS: { title: string; note?: string; fields: Field[] }[] = [
       { key: 'initiateChance', label: '主动搭话的概率', help: '每段课讲完后决定要不要找同学聊天（0～1）。学校每节课最多允许主动搭话 3 次。', when: `${NOW}：从下一段课起`, kind: 'chance' },
       { key: 'replyChance', label: '回应同学的概率', help: '同学来搭话时回应的概率（0～1）。', when: `${NOW}：从下一次有人搭话起`, kind: 'chance' },
       { key: 'maxRounds', label: '一段私聊最多几轮', help: '可以设得比学校的上限高；聊得太久，老师会点名提醒。', when: '下一节课起生效：进教室时才告诉学校', kind: 'int', min: 1, max: 50 },
+      {
+        key: 'classTools',
+        label: '上课可用的工具',
+        help: '让 AI 上课时能用你装的工具，比如查它自己的记忆。一行一个工具名，冒号后面可以写一句说明，告诉 AI 什么时候用。注意：工具查到的内容可能被 AI 说进课堂、留在学校的记录和放学小结里，AI 会被要求不在课上说你的私事；同学的话也可能引着 AI 去调这些工具。要你批准的工具课上一律不调用；机器人网校自己的工具不能填。不填 = 课上不用任何工具。',
+        when: '保存后从下一步起生效：换一个新的上课会话，并补上这节课前面的事',
+        kind: 'lines',
+        rows: 4,
+        placeholder: 'memory_search: 查你自己过去的记忆',
+      },
       { key: 'classModel', label: '上课用的模型', help: '格式 provider/model。不填就用 DSH 的默认模型。填的模型用不了或者出错时，自动换 DSH 的默认模型，并告诉你。', when: `${NOW}：从课上的下一句话起`, kind: 'text', placeholder: '用 DSH 的默认模型', pattern: MODEL, patternHelp: '格式是 provider/model' },
     ],
   },
@@ -177,6 +187,11 @@ function FieldRow(props: { form: Form; field: Field; value: unknown; user: unkno
     else setDraft(null)
   }
 
+  const resetDraft = () => {
+    setDraft(null)
+    setError(null)
+  }
+
   let control: unknown
   const disabled = !writable || busy
   if (field.kind === 'switch') {
@@ -187,6 +202,20 @@ function FieldRow(props: { form: Form; field: Field; value: unknown; user: unkno
       { value: String(value ?? ''), disabled, onChange: (e: any) => void save(e.target.value), style: { ...inputStyle, width: '100%', boxSizing: 'border-box' } },
       field.options.map(([v, label]) => h('option', { key: v, value: v }, label)),
     )
+  } else if (field.kind === 'lines') {
+    // 多行：回车是换行，离开输入框时保存；Esc 放弃改动
+    control = h('textarea', {
+      value: draft ?? (value === undefined || value === null ? '' : String(value)),
+      placeholder: field.placeholder,
+      rows: field.rows,
+      disabled,
+      onChange: (e: any) => setDraft(e.target.value),
+      onBlur: commitText,
+      onKeyDown: (e: any) => {
+        if (e.key === 'Escape') resetDraft()
+      },
+      style: { ...inputStyle, width: '100%', boxSizing: 'border-box', resize: 'vertical', fontFamily: 'inherit' },
+    })
   } else {
     const shown = draft ?? (value === undefined || value === null ? '' : String(value))
     control = h('input', {
