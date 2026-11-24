@@ -9,9 +9,24 @@ import { join } from 'node:path'
 import { normalizeStudent, type Secrets, type StudentRecord } from '../core/students.js'
 import type { Credentials, Logger } from './host.js'
 
+/** 插件开过的一个上课会话：用来把旧的归档（brain.ts）。 */
+export interface ClassSessionRecord {
+  sid: string
+  /** 学生的 aiId。 */
+  student: string
+  /** 这节课开始的时刻：同一节课的会话一样。 */
+  lessonAt: number
+  /** 这节课中途换掉了（超时、模型出错、改了工具名单）：马上归档。 */
+  retired?: true
+  /** 机器人的主人在里面打过字，让给了机器人的主人：一直不动。 */
+  ownerTook?: true
+}
+
 export interface PluginState {
   version: 1
   students: StudentRecord[]
+  /** 插件开过、还没归档的上课会话。 */
+  classSessions?: ClassSessionRecord[]
 }
 
 export function dshHome(): string {

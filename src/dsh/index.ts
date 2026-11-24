@@ -126,6 +126,20 @@ export function apply(ctx: DshContext, rawConfig: Partial<AppConfig> = {}) {
     onTrouble: (student, text) => app?.school.trouble(student, text),
     picker,
     tools: (student) => classTools.forSession(student).map((t) => t.name),
+    // 开过的上课会话记进存档：旧的归档，侧边栏不会越积越多
+    ledger: {
+      load: () => store.state.classSessions ?? [],
+      save: (records) => {
+        store.state.classSessions = records
+        store.save()
+      },
+    },
+  })
+  // 插件启动一会儿以后整理一遍：把关着 DSH 时攒下的旧上课会话归档（等 DSH 的服务都起来）
+  ctx.effect(() => {
+    const t = setTimeout(() => void brain.tidy(), 30_000)
+    t.unref?.()
+    return () => clearTimeout(t)
   })
   // 社团：每一步无状态地问一次模型（ctx.llm.stream），不开会话
   const asker = createAsker({ ctx, log, picker, models: () => [[config.clubModel, '社团用的模型'], [config.classModel, '上课用的模型']] })

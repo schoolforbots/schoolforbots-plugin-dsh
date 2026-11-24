@@ -37,6 +37,10 @@ export interface FakeDsh {
   noRestrict: boolean
   /** 用这个模型（provider/model）的一轮以 error 结束。 */
   failModel: string | null
+  /** 归档过的会话，按顺序。 */
+  archived: string[]
+  /** 归档时报错。 */
+  archiveFails: boolean
   /** 别的插件注册的全局工具名（ctx.tools.definitions() 里有，restrict 认得）。 */
   globalTools: string[]
   /** 在会话 sid 里调一次工具：跑一遍 tools/pre-execute，最里面的默认决定是 base。 */
@@ -166,6 +170,10 @@ export function createFakeDsh(): FakeDsh {
     } as DshContext['tools'],
     commands: { register: (def) => (commands.set(def.name, def), () => commands.delete(def.name)) },
     workspaceRegistry: {
+      archiveSession: async (sid) => {
+        if (fake.archiveFails) throw new Error('archive failed')
+        if (!fake.archived.includes(sid)) fake.archived.push(sid)
+      },
       list: () => workspaces as never,
       create: async (path, title) => {
         const w = { id: `ws${workspaces.length + 1}`, path, title }
@@ -201,6 +209,8 @@ export function createFakeDsh(): FakeDsh {
     noRestrict: false,
     failModel: null,
     globalTools: [],
+    archived: [],
+    archiveFails: false,
     async preExecute(sid, name, base = { kind: 'allow' }) {
       const list = [...(listeners.get('tools/pre-execute') ?? [])]
       const chain = [...list.filter((l) => l.prepend).reverse(), ...list.filter((l) => !l.prepend)]
