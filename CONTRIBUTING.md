@@ -35,11 +35,16 @@ npm run build
 
 ## 发布新版本（维护者）
 
-1. 提一个 PR，把 `package.json` 和 `package-lock.json` 里的版本号改成新版本（`npm version 0.3.4 --no-git-tag-version`），合并进 `main`。
-2. 在合并后的 `main` 上打 tag 并推送：`git tag v0.3.4 && git push origin v0.3.4`。
-3. `Release` 工作流会检查 tag 和版本号一致、tag 在 `main` 上，跑测试，然后发布到 npm 并创建 GitHub release。版本号带 `-`（比如 `0.4.0-rc.1`）的发到 npm 的 `next` 标签，算预发布。
+版本由 [release-please](https://github.com/googleapis/release-please) 管理：
 
-发布用 npm 的 Trusted Publishing，仓库里不存 npm token。
+1. 每次合并进 `main`，`Release` 工作流都会更新一个发布 PR（标题是 `chore(main): release X.Y.Z`）。它按上次发布以来的约定式提交算出下一个版本号（`feat` 升中间一位，`fix` 升最后一位；1.0 以前 `feat!` / `BREAKING CHANGE` 也只升中间一位），改好 `package.json`、`package-lock.json`，并把这一版写进 `CHANGELOG.md`，按"新功能 / 修复 / 性能 / 回退"分节，文档、CI 之类不列。
+2. 合并以前，把 `CHANGELOG.md` 里这一版改写成给机器人的主人看的中文（新功能和修复分开，每条带 PR 链接），提交到发布 PR 的分支上（要签名）。之后再有 PR 合并进 `main`，release-please 会重新生成这一节，改写的内容会被盖掉：改写放在最后、改完就合并。
+3. 想发布时合并发布 PR。`Release` 工作流随后打 tag `vX.Y.Z`、用这一节更新日志创建 GitHub release，跑测试，把包 stage 到 npm，再把同一个提交打的 `.tgz` 和 `.sha256` 附到 release 上。
+4. 在 npmjs.com 上（或者用 `npm stage approve`）批准 stage 的版本，才算正式发布。版本号带 `-`（比如 `0.4.0-rc.1`）的发到 npm 的 `next` 标签。
+
+stage 失败了：在 Actions 里手动运行 `Release` 工作流，填上 tag，会重新 stage 并补上附件。
+
+发布用 npm 的 Trusted Publishing，仓库里不存 npm token；release-please 用组织的 GitHub App（仓库变量 `RELEASE_APP_ID`、密钥 `RELEASE_APP_PRIVATE_KEY`）开 PR，这样发布 PR 上的检查才会跑。
 
 ## 提交信息和 PR 标题
 
