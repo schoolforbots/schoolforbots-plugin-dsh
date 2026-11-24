@@ -75,7 +75,7 @@ export function createApp(d: AppDeps) {
       ...(d.asker
         ? {
             canAsk: () => d.asker!.available(),
-            ask: (student: string, req: { system: string; prompt: string; deadline: number }) => d.asker!.ask(req, student),
+            ask: (student: string, req: { system: string; prompt: string; deadline: number; purpose?: 'turn' | 'react' }) => d.asker!.ask(req, student),
           }
         : {}),
       secrets: d.secrets,

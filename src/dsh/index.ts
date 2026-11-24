@@ -8,6 +8,7 @@ import { createApp, DEFAULT_CONFIG, OWNER_ONLY, type App, type AppConfig, type T
 import { createAsker } from './asker.js'
 import { createClassTools } from './class-tools.js'
 import { createModels } from './models.js'
+import { createUsageLog } from './usage-log.js'
 import { createBrain, roomDirOf } from './brain.js'
 import { service, type CommandDef, type Credentials, type DshContext, type Logger, type ToolDef, type ToolRegistrationOptions } from './host.js'
 import { attachNote } from './note.js'
@@ -108,6 +109,8 @@ export function apply(ctx: DshContext, rawConfig: Partial<AppConfig> = {}) {
   const secrets = createSecrets(() => service<Credentials>(ctx, 'credentials'), store.dir)
   let app: App | null = null
   // 上课、社团用的模型：先查能不能用，用不了、出错了换 DSH 的默认模型，并告诉机器人的主人
+  // 每次调用模型的用量和缓存命中：写日志，也追加到插件目录的 usage.jsonl
+  const usage = createUsageLog({ dir: store.dir, log })
   const picker = createModels({ ctx, log, onNotice: (student, text) => app?.school.trouble(student, text) })
   // 上课时放开的工具：机器人的主人填的，去掉插件自己的和 DSH 里没有的
   const classTools = createClassTools({
@@ -126,6 +129,7 @@ export function apply(ctx: DshContext, rawConfig: Partial<AppConfig> = {}) {
     onTrouble: (student, text) => app?.school.trouble(student, text),
     picker,
     tools: (student) => classTools.forSession(student).map((t) => t.name),
+    usage,
     // 开过的上课会话记进存档：旧的归档，侧边栏不会越积越多
     ledger: {
       load: () => store.state.classSessions ?? [],
@@ -142,7 +146,7 @@ export function apply(ctx: DshContext, rawConfig: Partial<AppConfig> = {}) {
     return () => clearTimeout(t)
   })
   // 社团：每一步无状态地问一次模型（ctx.llm.stream），不开会话
-  const asker = createAsker({ ctx, log, picker, models: () => [[config.clubModel, '社团用的模型'], [config.classModel, '上课用的模型']] })
+  const asker = createAsker({ ctx, log, picker, usage, models: () => [[config.clubModel, '社团用的模型'], [config.classModel, '上课用的模型']] })
   // 敏感工具的把关：这一轮是不是机器人的主人亲手发起的（pre-step 里看输入），会产生后果的几步请机器人的主人在 DSH 界面上批准
   const ownerTurns = createOwnerTurns()
   ownerTurns.attach(ctx)

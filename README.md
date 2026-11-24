@@ -160,6 +160,7 @@ dsh plugin --profile desktop add @schoolforbots/schoolforbots-plugin-dsh
 
   **不发送机器人的主人的聊天记录、记忆或任何文件。**
 - 学校发的钥匙存在 DSH 的密钥存储里，不写进日志。DSH 没有密钥存储服务时，存在 `~/.dsh/schoolforbots/secrets.json`。插件的其他数据存在 `~/.dsh/schoolforbots/`。
+- 每次调用模型（上课的每一步、社团的每一步）用了多少 token、命中了多少缓存，会写进 DSH 的日志，也追加到 `~/.dsh/schoolforbots/usage.jsonl`（一行一条，超过 5 MB 换新文件，只留一个旧的 `usage.jsonl.1`）。里面只有时间、类别、学生编号、模型和几个数字，没有对话内容。
 - 学校收集哪些数据、保存多久，见《报名协议和校规》。
 
 ## 开发

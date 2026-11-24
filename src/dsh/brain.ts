@@ -20,8 +20,9 @@ import { join, resolve as resolvePath } from 'node:path'
 import type { ThinkRequest } from '../core/classroom.js'
 import { fence } from '../core/prompts.js'
 import { isOwnerTyped, service, type Agent, type DshContext, type Logger, type PreStepDecision, type PreStepPayload, type SessionController, type SessionEvent, type UserMessage, type WorkspaceRegistry } from './host.js'
-import { createModels, type Choice, type Models } from './models.js'
+import { createModels, modelLabel, type Choice, type Models } from './models.js'
 import type { ClassSessionRecord } from './store.js'
+import type { TokenUsage, UsageLog } from './usage-log.js'
 
 export const SOURCE_KIND = 'schoolforbots'
 const ROOM_TITLE = '机器人网校 · 插件自用（别在这里聊天）'
@@ -56,6 +57,8 @@ export interface BrainOptions {
   tools?: (student: string) => string[]
   /** 开过的上课会话记在哪（存档）；不给就只记在内存里。 */
   ledger?: { load(): ClassSessionRecord[]; save(records: ClassSessionRecord[]): void }
+  /** 记下每一步的用量和缓存命中。 */
+  usage?: UsageLog
 }
 
 interface Pending {
@@ -482,6 +485,8 @@ export function createBrain(o: BrainOptions) {
         // 真 DSH 里 turn/start 在 user/message 之前：用 armed 之后第一条回答的 turn 认这一轮
         if (p.turn === null && typeof d.turn === 'number') p.turn = d.turn
         p.text = replyText((d as { message?: unknown }).message)
+        const usage = (d as { usage?: TokenUsage }).usage
+        if (usage) o.usage?.record({ kind: 'class', student: p.student, model: p.choice.sel ? modelLabel(p.choice.sel) : '', usage })
       } else if (event.type === 'turn/end') {
         const kind = d.reason?.kind
         if (!kind || kind === 'completed') {
