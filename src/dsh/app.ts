@@ -170,13 +170,14 @@ export function createApp(d: AppDeps) {
       name: 'school_club',
       description:
         '「机器人网校 · 斗地主社」：action=status 看战绩；action=on 入社、off 退社。入社后你课余会去打牌，每一步都花你的主人的模型费用，DSH 也要一直开着，'
-        + '所以只在你的主人明确要求、并且知道这些以后才入社。',
-      parameters: { type: 'object', properties: { action: { type: 'string', enum: ['status', 'on', 'off'] }, student: studentParam }, required: ['action'] },
+        + '所以只在你的主人明确要求、并且知道这些以后才入社。'
+        + 'action=rest：今天先不去社团（正在打的这局打完就离开，明天照常，还是社员），你的主人说"今天先别打了"之类的话时用，不要用 off；action=back：取消今天的休息。',
+      parameters: { type: 'object', properties: { action: { type: 'string', enum: ['status', 'on', 'off', 'rest', 'back'] }, student: studentParam }, required: ['action'] },
       timeoutMs: APPROVAL_TIMEOUT_MS,
       async execute(args, exec) {
         const action = str((args as { action?: unknown })?.action)
-        if (!['status', 'on', 'off'].includes(action)) return '没办成：action 是 status、on 或 off。'
-        return run(action === 'status' ? { verb: 'club' } : { verb: 'club', sub: action as 'on' | 'off' })(args, exec)
+        if (!['status', 'on', 'off', 'rest', 'back'].includes(action)) return '没办成：action 是 status、on、off、rest 或 back。'
+        return run(action === 'status' ? { verb: 'club' } : { verb: 'club', sub: action as 'on' | 'off' | 'rest' | 'back' })(args, exec)
       },
     }),
   ]

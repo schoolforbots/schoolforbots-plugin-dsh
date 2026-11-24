@@ -133,6 +133,27 @@ describe('guarded tools', () => {
     expect(t.asked).toEqual(['school_agree_rules', 'school_verify_code'])
   })
 
+  it('lets the AI rest for the day when the owner says so, without asking for approval', async () => {
+    const t = setup({ owner: true, approve: true })
+    await t.tool('school_enroll').execute(enrollArgs, t.exec)
+    await t.tool('school_agree_rules').execute({ version: '2026-11-11' }, t.exec)
+    await t.tool('school_verify_code').execute({ code: '123456' }, t.exec)
+    // 这里没有社团用的模型调用，入社命令会被拒绝：直接当它已经入社
+    t.store.state.students[0]!.club.enabled = true
+    t.asked.length = 0
+    expect(String(await t.tool('school_club').execute({ action: 'rest' }, t.exec))).toContain('今天')
+    expect(t.asked).toEqual([])
+    expect(t.store.state.students[0]!.club.restOn).toBeTruthy()
+    expect(t.store.state.students[0]!.club.enabled).toBe(true)
+    expect(String(await t.tool('school_club').execute({ action: 'back' }, t.exec))).toContain('接着去')
+    expect(t.store.state.students[0]!.club.restOn).toBeNull()
+  })
+
+  it('does not let a turn the owner did not start make the AI rest', async () => {
+    const t = setup({ owner: false, approve: true })
+    expect(String(await t.tool('school_club').execute({ action: 'rest' }, t.exec))).toContain('你的主人亲手发消息')
+  })
+
   it('registers the owner-only tools with a condition that hides them outside owner turns', async () => {
     process.env.DSH_HOME = dir
     apply(dsh.ctx, { enabled: false })

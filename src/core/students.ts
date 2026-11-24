@@ -41,6 +41,8 @@ export interface StudentRecord {
 
 export interface ClubState {
   enabled: boolean
+  /** 这一天（学校时区 YYYY-MM-DD）休息：不去社团，还是社员。第二天自动作废。 */
+  restOn?: string | null
   hold: Hold | null
   resume: ClubResume | null
 }

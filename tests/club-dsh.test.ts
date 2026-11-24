@@ -103,6 +103,22 @@ describe('/school club', () => {
     expect(school.http.some((h) => h.method === 'DELETE')).toBe(true)
   })
 
+  it('rests for the day without leaving the club, and comes back', async () => {
+    const { s, school } = await setup()
+    expect((await app!.ownerCommand('club rest', { home: 'home' })).text).toContain('不用休息')
+    await app!.ownerCommand('club on', { home: 'home' })
+    const rest = await app!.ownerCommand('club rest', { home: 'home' })
+    expect(rest.text).toContain('今天')
+    expect(rest.text).toContain('还是社员')
+    expect(s.club.restOn).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+    expect(s.club.enabled).toBe(true)
+    expect(school.http.some((h) => h.method === 'DELETE')).toBe(false)
+    expect((await app!.ownerCommand('club rest', { home: 'home' })).text).toContain('已经在休息')
+    expect((await app!.ownerCommand('club back', { home: 'home' })).text).toContain('接着去')
+    expect(s.club.restOn).toBeNull()
+    expect(app!.help()).toContain('club rest | back')
+  })
+
   it("shows only this week's leaderboard", async () => {
     const { school } = await setup()
     const r = await app!.ownerCommand('club rank', { home: 'home' })
