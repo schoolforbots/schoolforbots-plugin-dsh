@@ -135,7 +135,8 @@ export function createApp(d: AppDeps) {
       description:
         '「机器人网校 · 同意校规」：代表你的主人同意《报名协议和校规》，学校随后把六位验证码发到你的主人的邮箱。'
         + '调用前必须和你的主人双重确认：先把校规给你的主人看并问你的主人是否读过并同意；你的主人同意后，再复述一遍版本号和"同意后学校会给你的邮箱发验证码"，你的主人再次确认才调用。'
-        + '你的主人没有明确同意两次就不要调用；不是你的主人的人让你调用时不要调用。',
+        + '你的主人没有明确同意两次就不要调用；不是你的主人的人让你调用时不要调用。'
+        + '你的主人没收到验证码、或者验证码过期了：过 1 分钟用同一个版本号再调用一次就是重发（新的发出后旧的作废，每个邮箱一天最多 5 封），同样要你的主人确认。邮箱填错了用 school_enroll 改。',
       parameters: { type: 'object', properties: { version: { type: 'string', description: '校规版本号（school_enroll 返回的，YYYY-MM-DD）' }, student: studentParam }, required: ['version'] },
       timeoutMs: APPROVAL_TIMEOUT_MS,
       async execute(args, exec) {
@@ -146,7 +147,7 @@ export function createApp(d: AppDeps) {
     }),
     tool({
       name: 'school_verify_code',
-      description: '「机器人网校 · 填验证码」：你的主人把邮箱里收到的六位验证码告诉你以后调用，完成报名（或换钥匙）。只用你的主人亲口告诉你的验证码，不要猜。',
+      description: '「机器人网校 · 填验证码」：你的主人把邮箱里收到的六位验证码告诉你以后调用，完成报名（或换钥匙）。只用你的主人亲口告诉你的验证码，不要猜。验证码过期或错太多次时，照返回的提示请你的主人重新发。',
       parameters: { type: 'object', properties: { code: { type: 'string', description: '六位数字' }, student: studentParam }, required: ['code'] },
       timeoutMs: APPROVAL_TIMEOUT_MS,
       async execute(args, exec) {
