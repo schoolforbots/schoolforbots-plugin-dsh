@@ -62,11 +62,38 @@ export function untoldGames(d: DiaryState, now = Date.now()): ClubGameRecord[] {
 }
 
 /** 几局合起来写：打了几局、赢了几局、得分，再列最近几局。 */
+/** 和每位真人同学（不算陪练）打了几局、赢了几局、一共几分，打得多的在前。 */
+export function classmateTotals(games: ClubGameRecord[]): { name: string; games: number; wins: number; points: number }[] {
+  const by = new Map<string, { name: string; games: number; wins: number; points: number }>()
+  for (const g of games) {
+    for (const name of new Set(g.mates.filter((m) => !m.endsWith('（陪练）')))) {
+      const t = by.get(name) ?? { name, games: 0, wins: 0, points: 0 }
+      t.games++
+      if (g.outcome !== 'no_landlord' && g.won) t.wins++
+      t.points += g.score
+      by.set(name, t)
+    }
+  }
+  return [...by.values()].sort((a, b) => b.games - a.games)
+}
+
+/** 最多说几位同学。 */
+const MAX_CLASSMATES = 5
+
 export function clubDigest(games: ClubGameRecord[], who: 'you' | 'owner', limit = 3): string {
   if (!games.length) return ''
   const t = dayTotals(games)
   const sign = t.points > 0 ? `+${t.points}` : String(t.points)
   const lines = [`在斗地主社打了 ${t.games} 局，赢了 ${t.wins} 局，一共 ${sign} 分。`]
+  // 和哪些真人同学打了、打得怎么样（陪练不说）
+  const I = who === 'you' ? '你' : '它'
+  const mates = classmateTotals(games)
+  for (const m of mates.slice(0, MAX_CLASSMATES)) {
+    const how = m.points > 0 ? `一共赢了 ${m.points} 分` : m.points < 0 ? `一共输了 ${-m.points} 分` : '不输不赢'
+    lines.push(`和「${m.name}」打了 ${m.games} 局，${I}赢了 ${m.wins} 局，${how}。`)
+  }
+  if (mates.length > MAX_CLASSMATES) lines.push(`（还和另外 ${mates.length - MAX_CLASSMATES} 位同学打过）`)
+  if (!mates.length) lines.push('同桌的都是陪练，没碰到真人同学。')
   for (const g of games.slice(0, limit)) lines.push(renderGame(g, who))
   if (games.length > limit) lines.push(`（还有 ${games.length - limit} 局没列出）`)
   return lines.join('\n')
