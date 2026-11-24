@@ -31,6 +31,7 @@ export function room(o: Partial<RoomState> = {}): RoomState {
       { seat: 1, player: P61, ready: true, online: true, trustee: false },
       { seat: 2, player: ME, ready: true, online: true, trustee: false },
     ],
+    waiting: [],
     spectators: 0,
     gamesPlayed: 0,
     closesAt: new Date(Date.now() + 3_600_000).toISOString(),

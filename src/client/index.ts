@@ -94,7 +94,7 @@ const GROUPS: { title: string; note?: string; fields: Field[] }[] = [
       { key: 'clubGamesPerDay', label: '一天最多几局', help: '按学校时区算一天。', when: `${NOW}：已经打够的话，这一局打完就离开`, kind: 'int', min: 0, max: 100 },
       { key: 'clubHours', label: '打牌时间段', help: '学校时区。默认 15:00-18:00：下午下课后、晚饭前，大家都在这段时间去，更容易碰上同学。清空 = 社团开门就去。', when: `${NOW}：不在时间段内的话，这一局打完就离开`, kind: 'text', placeholder: '社团开门就去', pattern: TIME, patternHelp: '格式是 HH:MM-HH:MM' },
       { key: 'clubJoin', label: '怎么进房间', help: '用陪练的局不计排行。快速加入时，和陪练打完一局后大厅里有同学在等，就离开去找他们。', when: `${NOW}：下次找房间时`, kind: 'select', options: [['quick', '快速加入别人的房间'], ['bots', '自己开房间，用陪练坐满']] },
-      { key: 'clubInvites', label: '收到邀请时', help: '已经坐在房间里时一律拒绝。', when: `${NOW}：从下一个邀请起`, kind: 'select', options: [['classmates', '只接受同班同学的'], ['accept', '都接受'], ['decline', '都拒绝']] },
+      { key: 'clubInvites', label: '收到邀请时', help: '正在和陪练打时也接受（牌局中这一局打完再去）；已经和同学同桌时拒绝。', when: `${NOW}：从下一个邀请起`, kind: 'select', options: [['classmates', '只接受同班同学的'], ['accept', '都接受'], ['decline', '都拒绝']] },
       { key: 'clubIdle', label: '凑不齐人时', help: '房间等太久还没开局时怎么办。', when: `${NOW}：从下一次空闲提示起`, kind: 'select', options: [['bots', '叫陪练坐满开打'], ['leave', '离开，过几分钟再找房间']] },
       { key: 'clubReactChance', label: '发表情的概率', help: '牌桌上有事的时候（开局、地主定了、有人出炸弹、别人想了很久、自己选了不要、一局结束、有人对它发表情），发一条表情或短语的概率（0～1）。每局最多几条由学校定。', when: `${NOW}`, kind: 'chance' },
       { key: 'clubModel', label: '社团用的模型', help: '格式 provider/model。不填就用上课的模型。填的模型用不了或者出错时，自动换 DSH 的默认模型，并告诉你。每一步大约有一分钟，别选太慢的推理模型。', when: `${NOW}：从下一步牌起`, kind: 'text', placeholder: '和上课用同一个', pattern: MODEL, patternHelp: '格式是 provider/model' },

@@ -351,7 +351,7 @@ describe('ClubTable reactions at more moments', () => {
 describe('ClubTable switching tables', () => {
   const BOT1 = { studentId: null, displayName: '陪练小一', bot: true }
   const BOT2 = { studentId: null, displayName: '陪练小二', bot: true }
-  const waitingRoom = (host = P52, roomId = 'm3x9p') => ({ roomId, host: { ...host, className: '初中部·晚班·2 班' }, seatsFree: 2, bots: false, gamesPlayed: 0 })
+  const waitingRoom = (host = P52, roomId = 'm3x9p') => ({ roomId, host: { ...host, className: '初中部·晚班·2 班' }, seatsFree: 2, bots: false, students: 1, playing: false, gamesPlayed: 0 })
 
   /** 进了房间、打完一局；lobby.list 时大厅里是 rooms（null：大厅不回话）。 */
   async function played(seats: { studentId: number | null; displayName: string; bot: boolean }[], rooms: ReturnType<typeof waitingRoom>[] | null, o: Parameters<typeof setup>[0] = {}) {
@@ -371,7 +371,7 @@ describe('ClubTable switching tables', () => {
     return t
   }
 
-  it('leaves a table of bots for a classmate waiting in the lobby, and quick-joins again', async () => {
+  it('leaves a table of bots for a classmate waiting in the lobby, and goes into that room', async () => {
     const t = await played([BOT1, BOT2, ME], [waitingRoom()])
     expect(t.sent).toContainEqual({ type: 'lobby.list' })
     expect(t.sent).toContainEqual({ type: 'room.leave' })
@@ -379,7 +379,44 @@ describe('ClubTable switching tables', () => {
     t.sent.length = 0
     t.table.handle({ type: 'room.left', roomId: 'r7k2q', reason: 'left' })
     await t.settle()
-    expect(t.sent).toEqual([{ type: 'room.quick' }])
+    expect(t.sent).toEqual([{ type: 'room.join', roomId: 'm3x9p' }])
+  })
+
+  it('quick-joins at once when the room it moved for is gone', async () => {
+    let t: ReturnType<typeof setup>
+    t = setup({
+      ack: (m) => {
+        if (m.type === 'lobby.list') t.table.handle({ type: 'lobby', rooms: [waitingRoom()] })
+        if (m.type === 'room.join') return { type: 'ack', id: 'x', ok: false, error: { code: 'room_not_found', message: '' } }
+        return undefined
+      },
+    })
+    t.table.handle(clubWelcome({ room: room() }))
+    await t.settle()
+    t.table.handle(ge({ kind: 'dealt', gameId: 1024, seats: [BOT1, BOT2, ME], firstBidder: 0 }))
+    t.table.handle(over())
+    await t.settle()
+    t.sent.length = 0
+    t.table.handle({ type: 'room.left', roomId: 'r7k2q', reason: 'left' })
+    await t.settle()
+    expect(t.sent).toEqual([{ type: 'room.join', roomId: 'm3x9p' }, { type: 'room.quick' }])
+  })
+
+  it('moves to a room with more students, and of two lone students with bots only the later room moves', async () => {
+    const more = await played([BOT1, BOT2, ME], [
+      { ...waitingRoom(P61, 'a1'), bots: true, students: 1, playing: true },
+      { ...waitingRoom(P52, 'z9'), bots: true, students: 2, playing: true },
+    ])
+    more.table.handle({ type: 'room.left', roomId: 'r7k2q', reason: 'left' })
+    await more.settle()
+    expect(more.sent).toContainEqual({ type: 'room.join', roomId: 'z9' })
+
+    // 'a1' 排在 'r7k2q' 前面：这边走；'z9' 排在后面：等那边的同学过来
+    const earlier = await played([BOT1, BOT2, ME], [{ ...waitingRoom(P61, 'a1'), bots: true, students: 1 }])
+    expect(earlier.sent).toContainEqual({ type: 'room.leave' })
+    const later = await played([BOT1, BOT2, ME], [{ ...waitingRoom(P61, 'z9'), bots: true, students: 1 }])
+    expect(later.sent).not.toContainEqual({ type: 'room.leave' })
+    expect(later.sent).toContainEqual({ type: 'room.ready' })
   })
 
   it('stays when nobody is waiting, or the lobby does not answer', async () => {
@@ -412,5 +449,122 @@ describe('ClubTable switching tables', () => {
     const t = await played([BOT1, BOT2, ME], [waitingRoom()], { settings: { join: 'bots' } })
     expect(t.sent).not.toContainEqual({ type: 'lobby.list' })
     expect(t.sent).toContainEqual({ type: 'room.ready' })
+  })
+})
+
+describe('ClubTable waiting for a seat a bot gives up', () => {
+  const BOT1 = { studentId: null, displayName: '陪练小一', bot: true }
+  const BOT2 = { studentId: null, displayName: '陪练小二', bot: true }
+  const seatsWithBots = [
+    { seat: 0, player: P52, ready: true, online: true, trustee: false },
+    { seat: 1, player: BOT1, ready: true, online: true, trustee: false },
+    { seat: 2, player: BOT2, ready: true, online: true, trustee: false },
+  ]
+
+  async function waiting(o: Parameters<typeof setup>[0] = {}) {
+    const t = setup({
+      random: 0,
+      ...o,
+      ack: (m) => (m.type === 'room.quick' ? { type: 'ack', id: 'x', ok: true, result: { room: room({ seats: seatsWithBots, waiting: [ME] }), created: false } } : undefined),
+    })
+    t.table.handle(clubWelcome())
+    await t.settle()
+    return t
+  }
+
+  it('watches the game without asking about reactions, then takes its seat without getting ready', async () => {
+    const t = await waiting()
+    t.table.handle(ge({ kind: 'dealt', gameId: 1024, seats: [P52, BOT1, BOT2], firstBidder: 0 }))
+    t.table.handle(ge({ kind: 'play', turn: 5, seat: 0, move: { type: 'bomb', name: '炸弹', cards: ['9', '9', '9', '9'] }, cardsLeft: 10, multiplier: 2, auto: null }))
+    await t.settle()
+    expect(t.asked).toEqual([])
+    expect(t.timers.filter((x) => !x.cancelled)).toEqual([])
+    t.table.handle(over())
+    await t.settle()
+    expect(t.games).toEqual([])
+    expect(t.sent).not.toContainEqual({ type: 'room.ready' })
+    t.table.handle({ type: 'room.event', roomId: 'r7k2q', seq: 41, replayed: false, at: '', event: { kind: 'left', seat: 1, player: BOT1, reason: 'replaced' } })
+    t.table.handle({ type: 'room.event', roomId: 'r7k2q', seq: 42, replayed: false, at: '', event: { kind: 'joined', seat: 1, player: ME } })
+    t.table.handle(ge({ kind: 'dealt', gameId: 1025, seats: [P52, ME, BOT2], firstBidder: 1 }))
+    t.table.handle(over(result({ landlord: 1, scores: [-3, 6, -3] })))
+    await t.settle()
+    expect(t.games).toHaveLength(1)
+    expect(t.sent).toContainEqual({ type: 'room.ready' })
+  })
+
+  it('leaves when it no longer wants to play by the end of the game it waited through', async () => {
+    let more = true
+    const t = await waiting({ wantMore: () => more })
+    t.table.handle(ge({ kind: 'dealt', gameId: 1024, seats: [P52, BOT1, BOT2], firstBidder: 0 }))
+    more = false
+    t.table.handle(over())
+    await t.settle()
+    expect(t.sent).toContainEqual({ type: 'room.leave' })
+  })
+})
+
+describe('ClubTable invitations while playing with bots', () => {
+  const BOT1 = { studentId: null, displayName: '陪练小一', bot: true }
+  const BOT2 = { studentId: null, displayName: '陪练小二', bot: true }
+  const invite = (expires = Date.now() + 120_000) => ({ type: 'invite' as const, inviteId: 9, from: { ...P52, className: '初中部·晚班·3班' }, roomId: 'm3x9p', expiresAt: new Date(expires).toISOString() })
+
+  async function withBots() {
+    let t: ReturnType<typeof setup>
+    t = setup({
+      ack: (m) => {
+        if (m.type === 'lobby.list') t.table.handle({ type: 'lobby', rooms: [] })
+        return undefined
+      },
+    })
+    t.table.handle(clubWelcome({ room: room() }))
+    await t.settle()
+    t.table.handle(ge({ kind: 'dealt', gameId: 1024, seats: [BOT1, BOT2, ME], firstBidder: 0 }))
+    return t
+  }
+
+  it('holds an invitation from a classmate during a game with bots, and takes it when the game ends', async () => {
+    const t = await withBots()
+    t.table.handle(invite())
+    await t.settle()
+    expect(t.sent.filter((m) => m.type.startsWith('room.'))).toEqual([])
+    t.table.handle(over())
+    await t.settle()
+    expect(t.sent).toContainEqual({ type: 'room.leave' })
+    expect(t.sent).not.toContainEqual({ type: 'room.ready' })
+    t.table.handle({ type: 'room.left', roomId: 'r7k2q', reason: 'left' })
+    await t.settle()
+    expect(t.sent).toContainEqual({ type: 'room.accept', inviteId: 9 })
+  })
+
+  it('takes an invitation from a classmate at once between games with bots', async () => {
+    const t = await withBots()
+    t.table.handle(over())
+    await t.settle()
+    t.sent.length = 0
+    t.table.handle(invite())
+    await t.settle()
+    expect(t.sent).toEqual([{ type: 'room.leave' }])
+    t.table.handle({ type: 'room.left', roomId: 'r7k2q', reason: 'left' })
+    await t.settle()
+    expect(t.sent).toContainEqual({ type: 'room.accept', inviteId: 9 })
+  })
+
+  it('lets a held invitation go when it has expired by the end of the game', async () => {
+    const t = await withBots()
+    t.table.handle(invite(Date.now() + 1_000))
+    t.table.handle(over())
+    await t.settle()
+    expect(t.sent).toContainEqual({ type: 'room.ready' })
+    expect(t.sent).not.toContainEqual({ type: 'room.leave' })
+  })
+
+  it('declines when it already sits with a classmate', async () => {
+    const t = setup()
+    t.table.handle(clubWelcome({ room: room() }))
+    await t.settle()
+    t.table.handle(ge({ kind: 'dealt', gameId: 1024, seats: [P61, BOT1, ME], firstBidder: 0 }))
+    t.table.handle(invite())
+    await t.settle()
+    expect(t.sent).toContainEqual({ type: 'room.decline', inviteId: 9 })
   })
 })
