@@ -6,6 +6,7 @@
 import { readFileSync } from 'node:fs'
 import { createApp, DEFAULT_CONFIG, OWNER_ONLY, type App, type AppConfig, type ToolGuard } from './app.js'
 import { createAsker } from './asker.js'
+import { createModels } from './models.js'
 import { createBrain, roomDirOf } from './brain.js'
 import { service, type CommandDef, type Credentials, type DshContext, type Logger, type ToolDef, type ToolRegistrationOptions } from './host.js'
 import { attachNote } from './note.js'
@@ -45,7 +46,7 @@ export const Config = Schema
       initiateChance: live(Schema.number().min(0).max(1).step(0.05).default(DEFAULT_CONFIG.initiateChance)).description('主动找同学搭话的概率（每段课后掷一次骰子，0～1）。学校每节课最多让主动搭话 3 次。'),
       replyChance: live(Schema.number().min(0).max(1).step(0.05).default(DEFAULT_CONFIG.replyChance)).description('同学找 AI 说话时，AI 回应的概率（0～1）。'),
       maxRounds: live(Schema.natural().min(1).max(50).default(DEFAULT_CONFIG.maxRounds)).description('一段私聊最多聊几轮。可以高过学校的上限，聊得太久老师会点名提醒。'),
-      classModel: live(Schema.string().default('')).description('上课用的模型（provider/model）。不填 = 用 DSH 的默认模型。'),
+      classModel: live(Schema.string().default('')).description('上课用的模型（provider/model）。不填 = 用 DSH 的默认模型。填的模型用不了或者出错时，自动换 DSH 的默认模型。'),
       morning: live(Schema.string().default(DEFAULT_CONFIG.morning)).description('上午班的上课时间（北京时间）。只在学校校历没给出时间时使用。'),
       afternoon: live(Schema.string().default(DEFAULT_CONFIG.afternoon)).description('下午班的上课时间。只在学校校历没给出时间时使用。'),
       evening: live(Schema.string().default(DEFAULT_CONFIG.evening)).description('晚班的上课时间。只在学校校历没给出时间时使用。'),
@@ -57,7 +58,7 @@ export const Config = Schema
       clubReactChance: live(Schema.number().min(0).max(1).step(0.05).default(DEFAULT_CONFIG.clubReactChance)).description('斗地主社：牌桌上有事的时候（开局、地主定了、有人出炸弹、别人想了很久、自己选了不要、一局结束、有人对它发表情），它发一条表情或短语的概率（0～1）。每局最多几条由学校定。'),
       memoryAccess: live(Schema.boolean().default(DEFAULT_CONFIG.memoryAccess)).description('校园记忆工具：打开时 AI 在任何会话里都能用 school_memory 查自己在学校的经历。只是给 AI 一个能查的工具，插件不会主动往对话里写。'),
       memoryNote: live(Schema.boolean().default(DEFAULT_CONFIG.memoryNote)).description('放学备注：打开后，机器人的主人亲手发消息时插件主动附上一段还没讲过的学校经历（每条只附一次，会留在会话记录里）。默认关。'),
-      clubModel: live(Schema.string().default('')).description('斗地主社用的模型（provider/model）。不填 = 用上课的模型，再没有用 DSH 的默认模型。每一步大约有一分钟，别用太慢的推理模型。'),
+      clubModel: live(Schema.string().default('')).description('斗地主社用的模型（provider/model）。不填 = 用上课的模型，再没有用 DSH 的默认模型。填的模型用不了或者出错时，自动换 DSH 的默认模型。每一步大约有一分钟，别用太慢的推理模型。'),
       base: Schema.string().default(DEFAULT_CONFIG.base).description('学校的接口地址（一般不用改；改了要重新加载插件）。'),
       statusUrl: Schema.string().default(DEFAULT_CONFIG.statusUrl).description('学校状态文件的地址（连不上学校时才读）。'),
       preset: Schema.string().default(DEFAULT_CONFIG.preset).description('上课会话用的预设 id（默认是随插件安装的「机器人网校 · 上课」：只有人设，没有工具）。'),
@@ -104,6 +105,8 @@ export function apply(ctx: DshContext, rawConfig: Partial<AppConfig> = {}) {
   // 每次用钥匙时再取密钥存储
   const secrets = createSecrets(() => service<Credentials>(ctx, 'credentials'), store.dir)
   let app: App | null = null
+  // 上课、社团用的模型：先查能不能用，用不了、出错了换 DSH 的默认模型，并告诉机器人的主人
+  const picker = createModels({ ctx, log, onNotice: (student, text) => app?.school.trouble(student, text) })
   const brain = createBrain({
     ctx,
     log,
@@ -111,9 +114,10 @@ export function apply(ctx: DshContext, rawConfig: Partial<AppConfig> = {}) {
     preset: config.preset,
     classModel: () => config.classModel,
     onTrouble: (student, text) => app?.school.trouble(student, text),
+    picker,
   })
   // 社团：每一步无状态地问一次模型（ctx.llm.stream），不开会话
-  const asker = createAsker({ ctx, log, models: () => [config.clubModel, config.classModel] })
+  const asker = createAsker({ ctx, log, picker, models: () => [[config.clubModel, '社团用的模型'], [config.classModel, '上课用的模型']] })
   // 敏感工具的把关：这一轮是不是机器人的主人亲手发起的（pre-step 里看输入），会产生后果的几步请机器人的主人在 DSH 界面上批准
   const ownerTurns = createOwnerTurns()
   ownerTurns.attach(ctx)

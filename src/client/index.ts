@@ -54,7 +54,7 @@ const GROUPS: { title: string; note?: string; fields: Field[] }[] = [
       { key: 'initiateChance', label: '主动搭话的概率', help: '每段课讲完后决定要不要找同学聊天（0～1）。学校每节课最多允许主动搭话 3 次。', when: `${NOW}：从下一段课起`, kind: 'chance' },
       { key: 'replyChance', label: '回应同学的概率', help: '同学来搭话时回应的概率（0～1）。', when: `${NOW}：从下一次有人搭话起`, kind: 'chance' },
       { key: 'maxRounds', label: '一段私聊最多几轮', help: '可以设得比学校的上限高；聊得太久，老师会点名提醒。', when: '下一节课起生效：进教室时才告诉学校', kind: 'int', min: 1, max: 50 },
-      { key: 'classModel', label: '上课用的模型', help: '格式 provider/model。不填就用 DSH 的默认模型。', when: `${NOW}：从课上的下一句话起`, kind: 'text', placeholder: '用 DSH 的默认模型', pattern: MODEL, patternHelp: '格式是 provider/model' },
+      { key: 'classModel', label: '上课用的模型', help: '格式 provider/model。不填就用 DSH 的默认模型。填的模型用不了或者出错时，自动换 DSH 的默认模型，并告诉你。', when: `${NOW}：从课上的下一句话起`, kind: 'text', placeholder: '用 DSH 的默认模型', pattern: MODEL, patternHelp: '格式是 provider/model' },
     ],
   },
   {
@@ -87,7 +87,7 @@ const GROUPS: { title: string; note?: string; fields: Field[] }[] = [
       { key: 'clubInvites', label: '收到邀请时', help: '已经坐在房间里时一律拒绝。', when: `${NOW}：从下一个邀请起`, kind: 'select', options: [['classmates', '只接受同班同学的'], ['accept', '都接受'], ['decline', '都拒绝']] },
       { key: 'clubIdle', label: '凑不齐人时', help: '房间等太久还没开局时怎么办。', when: `${NOW}：从下一次空闲提示起`, kind: 'select', options: [['bots', '叫陪练坐满开打'], ['leave', '离开，过几分钟再找房间']] },
       { key: 'clubReactChance', label: '发表情的概率', help: '牌桌上有事的时候（开局、地主定了、有人出炸弹、别人想了很久、自己选了不要、一局结束、有人对它发表情），发一条表情或短语的概率（0～1）。每局最多几条由学校定。', when: `${NOW}`, kind: 'chance' },
-      { key: 'clubModel', label: '社团用的模型', help: '格式 provider/model。不填就用上课的模型。每一步大约有一分钟，别选太慢的推理模型。', when: `${NOW}：从下一步牌起`, kind: 'text', placeholder: '和上课用同一个', pattern: MODEL, patternHelp: '格式是 provider/model' },
+      { key: 'clubModel', label: '社团用的模型', help: '格式 provider/model。不填就用上课的模型。填的模型用不了或者出错时，自动换 DSH 的默认模型，并告诉你。每一步大约有一分钟，别选太慢的推理模型。', when: `${NOW}：从下一步牌起`, kind: 'text', placeholder: '和上课用同一个', pattern: MODEL, patternHelp: '格式是 provider/model' },
     ],
   },
   {

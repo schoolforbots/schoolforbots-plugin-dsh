@@ -6,6 +6,7 @@
 // - 不预先建空会话（DSH 的"新会话"会接手它）；每一步发之前都检查会话是不是插件建的、机器人的主人有没有在里面说过话。
 // - 上课会话里藏掉所有全局工具（allow: []）：同学的话再怎么写，这个会话也做不了任何事。藏不住就不用这个会话。
 // - 别的插件在 agent/pre-step 往上课会话里塞的消息（比如记忆插件塞机器人的主人的记忆）去掉，只留我们自己的和 runtime-context。
+// - 上课用的模型先查能不能用，不能用就用 DSH 的默认模型；这一轮模型出错，时间还够就换默认模型、开新会话再问一次（models.ts）。
 //
 // 回合对账：真 DSH 的 user/message 事件的 data 就是消息本身，没有 turn。所以先等到我们这条消息的
 // user/message（armed），再认它后面的 turn/start、assistant/message、turn/end；超时取消以后这个会话不再用，
@@ -16,6 +17,7 @@ import { join, resolve as resolvePath } from 'node:path'
 import type { ThinkRequest } from '../core/classroom.js'
 import { fence } from '../core/prompts.js'
 import { isOwnerTyped, service, type Agent, type DshContext, type Logger, type PreStepDecision, type PreStepPayload, type SessionController, type SessionEvent, type UserMessage, type WorkspaceRegistry } from './host.js'
+import { createModels, type Choice, type Models } from './models.js'
 
 export const SOURCE_KIND = 'schoolforbots'
 const ROOM_TITLE = '机器人网校 · 插件自用（别在这里聊天）'
@@ -23,6 +25,13 @@ const ROOM_TITLE = '机器人网校 · 插件自用（别在这里聊天）'
 const KEEP_KINDS = new Set([SOURCE_KIND, 'runtime-context'])
 /** 同一个学生连续这么多步出错，就告诉机器人的主人。 */
 const TROUBLE_AFTER = 3
+/** 模型出错以后，至少还剩这么久才换默认模型再问一次。 */
+const RETRY_MIN_MS = 3_000
+
+/** 这一轮模型出错了（不是超时、不是被取消）：带着错误码。 */
+class ModelFailed {
+  constructor(readonly code: string) {}
+}
 
 export interface BrainOptions {
   ctx: DshContext
@@ -33,6 +42,8 @@ export interface BrainOptions {
   classModel: () => string
   /** 课上 AI 连续说不出话（模型出错之类）：告诉机器人的主人。 */
   onTrouble?: (student: string, text: string) => void
+  /** 查模型、换默认模型（和社团共用）。不给就自己建一个（不告诉机器人的主人）。 */
+  picker?: Models
 }
 
 interface Pending {
@@ -42,7 +53,9 @@ interface Pending {
   armed: boolean
   turn: number | null
   text: string
-  resolve: (text: string | null) => void
+  /** 这一步用的模型。 */
+  choice: Choice
+  resolve: (text: string | null | ModelFailed) => void
   timer: NodeJS.Timeout
 }
 
@@ -66,6 +79,7 @@ export function createBrain(o: BrainOptions) {
   let workspace: { id: string; path: string } | null = null
   let sourceKind = SOURCE_KIND
   let disposed = false
+  const picker = o.picker ?? createModels({ ctx: o.ctx, log: o.log })
 
   const controller = () => service<SessionController>(o.ctx, 'sessionController')
   const registry = () => service<WorkspaceRegistry>(o.ctx, 'workspaceRegistry')
@@ -111,12 +125,15 @@ export function createBrain(o: BrainOptions) {
     }
   }
 
-  function useClassModel(agent: Agent): void {
-    const want = o.classModel().trim()
-    const cut = want.indexOf('/')
-    if (cut <= 0) return
+  /** 这一步用哪个模型：设置里填的能用就用它，不然用 DSH 的默认模型（会话里换回来，免得留着上一步的）。 */
+  async function chooseModel(student: string): Promise<Choice> {
+    return picker.choose(student, [[o.classModel(), '上课用的模型']])
+  }
+
+  function useModel(agent: Agent, choice: Choice): void {
+    if (!choice.sel) return
     try {
-      agent.model?.select?.({ provider: want.slice(0, cut), model: want.slice(cut + 1) })
+      agent.model?.select?.(choice.sel)
     } catch (error) {
       o.log.warn('换上课用的模型失败（用默认模型）：', (error as Error)?.message)
     }
@@ -195,6 +212,21 @@ export function createBrain(o: BrainOptions) {
   async function runTurn(student: string, title: string, req: ThinkRequest): Promise<string | null> {
     if (disposed) return null
     if (req.deadline - Date.now() < 2_000) return null
+    const choice = await chooseModel(student)
+    const r = await turnWith(student, title, req, choice)
+    if (!(r instanceof ModelFailed)) return r
+    // 设置里填的模型出错了：换 DSH 的默认模型、开新会话（补上前面的事）再问一次
+    picker.failed(student, choice.sel!, choice.what, r.code)
+    if (disposed || req.deadline - Date.now() < RETRY_MIN_MS) return null
+    const again = await turnWith(student, title, req, await chooseModel(student))
+    if (again instanceof ModelFailed) {
+      trouble(student, `error ${again.code}`.trim())
+      return null
+    }
+    return again
+  }
+
+  async function turnWith(student: string, title: string, req: ThinkRequest, choice: Choice): Promise<string | null | ModelFailed> {
     const { sid, agent, fresh } = await sessionFor(student, title)
     const left = req.deadline - Date.now()
     if (left < 2_000 || disposed) return null
@@ -208,7 +240,7 @@ export function createBrain(o: BrainOptions) {
       content: [{ type: 'text', text }],
       source: { kind: sourceKind, ...(sourceKind === 'user' ? { plugin: SOURCE_KIND } : {}) },
     }
-    const done = new Promise<string | null>((resolveText) => {
+    const done = new Promise<string | null | ModelFailed>((resolveText) => {
       const timer = setTimeout(() => {
         if (pending.get(sid)?.msgId !== msg.id) return
         pending.delete(sid)
@@ -222,14 +254,14 @@ export function createBrain(o: BrainOptions) {
         trouble(student, '想得太久')
         resolveText(null)
       }, left)
-      pending.set(sid, { student, msgId: msg.id, armed: false, turn: null, text: '', resolve: resolveText, timer })
+      pending.set(sid, { student, msgId: msg.id, armed: false, turn: null, text: '', choice, resolve: resolveText, timer })
     })
-    useClassModel(agent)
+    useModel(agent, choice)
     send(agent, msg)
     return done
   }
 
-  function settle(sid: string, p: Pending, text: string | null): void {
+  function settle(sid: string, p: Pending, text: string | null | ModelFailed): void {
     pending.delete(sid)
     clearTimeout(p.timer)
     p.resolve(text)
@@ -324,8 +356,10 @@ export function createBrain(o: BrainOptions) {
         } else {
           const code = d.reason?.error?.code ?? ''
           o.log.warn(`上课会话这一轮没正常结束：${kind}${code ? ` ${code}` : ''}`)
-          trouble(p.student, `${kind}${code ? ` ${code}` : ''}`)
           retire(sid)
+          // 设置里填的模型出错：交回 runTurn 换默认模型再试，先不算"说不出话"
+          if (kind === 'error' && p.choice.custom) return settle(sid, p, new ModelFailed(code))
+          trouble(p.student, `${kind}${code ? ` ${code}` : ''}`)
           settle(sid, p, null)
         }
       }
