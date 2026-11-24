@@ -1,14 +1,26 @@
 name: Release
 
-# Pushing a tag like v0.3.4 stages that version on npm and opens a GitHub release.
-# npm trusts this workflow through Trusted Publishing (OIDC), so the repository holds no npm token.
-# The trusted publisher may only stage a version (npm stage publish), not publish it: a maintainer
-# approves the staged version on npmjs.com (or with npm stage approve) to publish it.
-# The GitHub release carries the same package as a .tgz with its sha256, for people who cannot reach npm.
-# The tag must match the version in package.json and point at a commit on main.
+# Versions (CONTRIBUTING.md, "发布新版本"). On every push to main, release-please keeps a release pull request up to
+# date: the next version in package.json and package-lock.json and its part of CHANGELOG.md, from the Conventional
+# Commits since the last release. Merging that pull request tags the commit vX.Y.Z and publishes a GitHub release with
+# that part of the changelog; then the `publish` job stages the package on npm and attaches it to the release.
+#
+# release-please acts with a token of the organization's GitHub App (RELEASE_APP_ID, RELEASE_APP_PRIVATE_KEY): a pull
+# request opened with GITHUB_TOKEN would not start the workflows, so its required checks would never run. The App's
+# commits are signed off by nobody, and dco.yml does not check authors whose names end in [bot].
+#
+# npm trusts this workflow through Trusted Publishing (OIDC), so the repository holds no npm token. The trusted publisher
+# may only stage a version (npm stage publish), not publish it: a maintainer approves the staged version on npmjs.com
+# (or with npm stage approve) to publish it. If staging fails after the release is out, run this workflow by hand
+# (workflow_dispatch) with the tag to stage it again.
 on:
   push:
-    tags: ['v*']
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'A released tag (vX.Y.Z) to stage on npm and attach the package to, again'
+        required: true
 
 permissions:
   contents: read
@@ -18,15 +30,41 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  release-please:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      created: ${{ steps.release.outputs.release_created }}
+      tag: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - id: app
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+      - id: release
+        uses: googleapis/release-please-action@v5
+        with:
+          token: ${{ steps.app.outputs.token }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
   publish:
+    needs: release-please
+    # After a release, or by hand for a tag; not on other pushes to main
+    if: always() && (needs.release-please.outputs.created == 'true' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
-      contents: write # create the GitHub release
+      contents: write # attach the package to the release
       id-token: write # npm Trusted Publishing and provenance
+    env:
+      TAG: ${{ needs.release-please.outputs.tag || inputs.tag }}
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ needs.release-please.outputs.tag || inputs.tag }}
           fetch-depth: 0
       - uses: actions/setup-node@v7
         with:
@@ -37,18 +75,17 @@ jobs:
       - name: Check the tag
         id: check
         run: |
-          tag="${GITHUB_REF_NAME}"
           name="$(node -p "require('./package.json').name")"
           version="$(node -p "require('./package.json').version")"
-          if [ "$tag" != "v$version" ]; then
-            echo "::error::Tag $tag does not match package.json version $version"
+          if [ "$TAG" != "v$version" ]; then
+            echo "::error::Tag $TAG does not match package.json version $version"
             exit 1
           fi
-          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
-            echo "::error::Tag $tag is not on main"
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "::error::Tag $TAG is not on main"
             exit 1
           fi
-          # A version already on npm (for example one published by hand) only gets the GitHub release.
+          # A version already on npm (staged and approved, or published by hand) is not staged again.
           if npm view "$name@$version" version >/dev/null 2>&1; then
             echo "published=true" >> "$GITHUB_OUTPUT"
           else
@@ -70,29 +107,27 @@ jobs:
         if: steps.check.outputs.published == 'false'
         run: npm stage publish --provenance --access public --tag "${{ steps.check.outputs.dist_tag }}"
 
-      # The same package, packed from the same commit, for people who cannot reach npm. It has no
-      # provenance of its own: the .sha256 file is there to check the download.
-      - name: Pack for the GitHub release
-        id: pack
+      # The same package, packed from the same commit, for people who cannot reach npm. It has no provenance of its
+      # own: the .sha256 file is there to check the download.
+      - name: Attach the package to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           file="$(npm pack --silent | tail -n 1)"
           sha256sum "$file" > "$file.sha256"
-          echo "file=$file" >> "$GITHUB_OUTPUT"
-
-      - name: Create the GitHub release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          FILE: ${{ steps.pack.outputs.file }}
-        run: |
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            echo "Release $GITHUB_REF_NAME already exists; uploading the package"
-            gh release upload "$GITHUB_REF_NAME" "$FILE" "$FILE.sha256" --clobber
-          else
-            name="$(node -p "require('./package.json').name")"
-            version="$(node -p "require('./package.json').version")"
-            notes="npm: https://www.npmjs.com/package/$name/v/$version (installable from npm once a maintainer approves the staged version).
-          The attached \`$FILE\` is the same package packed from this commit: \`npm install ./$FILE\`. Check it against \`$FILE.sha256\`."
-            prerelease=""
-            [ "${{ steps.check.outputs.dist_tag }}" = "next" ] && prerelease="--prerelease"
-            gh release create "$GITHUB_REF_NAME" "$FILE" "$FILE.sha256" --verify-tag --generate-notes --notes "$notes" $prerelease
-          fi
+          gh release upload "$TAG" "$file" "$file.sha256" --clobber
+          # Below the changelog: where to get it, once
+          name="$(node -p "require('./package.json').name")"
+          version="${TAG#v}"
+          body="$(gh release view "$TAG" --json body --jq .body)"
+          case "$body" in
+            *"npm install ./"*) ;;
+            *)
+              {
+                printf '%s\n\n---\n\n' "$body"
+                printf 'npm：https://www.npmjs.com/package/%s/v/%s（维护者在 npm 上批准以后才能从 npm 安装）。\n' "$name" "$version"
+                printf '附件 `%s` 是同一个提交打的包：`npm install ./%s`，可以用 `%s.sha256` 校验。\n' "$file" "$file" "$file"
+              } > "$RUNNER_TEMP/notes.md"
+              gh release edit "$TAG" --notes-file "$RUNNER_TEMP/notes.md"
+              ;;
+          esac

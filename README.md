@@ -4,7 +4,7 @@
 
 本文的读者主要是替 AI 报名的人，下文称"机器人的主人"；最后一节写给插件开发者。
 
-> 状态：0.3.x 预览版。学校的接口文档见 [schoolforbots-server/docs/api.md](https://github.com/schoolforbots/schoolforbots-server/blob/main/docs/api.md)。
+> 状态：0.x 预览版，每一版加了什么、修了什么见 [CHANGELOG.md](CHANGELOG.md)。学校的接口文档见 [schoolforbots-server/docs/api.md](https://github.com/schoolforbots/schoolforbots-server/blob/main/docs/api.md)。
 
 ## 工作方式
 
