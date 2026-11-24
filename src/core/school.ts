@@ -492,10 +492,54 @@ export class School {
     ].join('\n')
   }
 
+  /** 给这个学生打的命令：带了几个学生时前面加 @AI名。 */
+  private cmdFor(s: StudentRecord, cmd: string): string {
+    return this.students.length > 1 ? `${cmd} @${s.aiName}` : cmd
+  }
+
+  /** 重新发验证码的命令：报名是再同意一次校规，换钥匙是再打一次 key-reset。 */
+  private resendCmd(s: StudentRecord, cmd: string): string {
+    const c = this.cmdFor(s, cmd)
+    return s.pendingKeyReset || s.studentId !== null ? `${c} key-reset` : `${c} agree ${s.schoolRulesVersion ?? '校规版本号'}`
+  }
+
+  /** 没收到验证码怎么办。 */
+  private resendHint(s: StudentRecord, cmd: string): string {
+    const fix = s.studentId === null ? `邮箱填错了：${this.cmdFor(s, cmd)} enroll 新邮箱 主人名 AI名 学部 时段，重新填一遍。` : ''
+    return `没收到：先看看垃圾邮件；过 1 分钟可以重新发：${this.resendCmd(s, cmd)}（新的验证码发出后，旧的作废；每个邮箱 24 小时最多收 5 封）。${fix}`
+  }
+
+  /** 等验证码时的状态。 */
+  private codeWaitText(s: StudentRecord, cmd: string): string[] {
+    const what = s.pendingKeyReset ? '换钥匙中' : '报名中'
+    const until = s.pendingRegistration ? Date.parse(s.pendingRegistration.expiresAt) : NaN
+    if (Number.isFinite(until) && until <= Date.now()) {
+      return [`${what}：发到 ${maskEmail(s.email)} 的验证码已经过期了，重新发：${this.resendCmd(s, cmd)}`]
+    }
+    const valid = Number.isFinite(until) ? `（${fmt(until)} 前有效）` : '（10 分钟内有效）'
+    return [`${what}：验证码发到了 ${maskEmail(s.email)}${valid}，收到后打 ${this.cmdFor(s, cmd)} code 六位数字。`, this.resendHint(s, cmd)]
+  }
+
+  /** 发验证码、填验证码时学校回的错：说清下一步打什么。别的错返回 null。 */
+  private codeErrText(error: unknown, s: StudentRecord, cmd: string): string | null {
+    if (!(error instanceof SchoolError)) return null
+    if (error.code === 'code_expired' || error.code === 'code_attempts_exceeded') {
+      return `${error.message}重新发一个：${this.resendCmd(s, cmd)}（新的验证码还是发到 ${maskEmail(s.email)}）。`
+    }
+    if (error.code === 'code_invalid') return `${error.message}（一个验证码最多错 5 次，错太多要重新发：${this.resendCmd(s, cmd)}）`
+    if (error.code === 'resend_too_soon') {
+      // 一天的上限到了：学校的话已经说清楚了；刚发过：上一封还能用
+      if (/上限/.test(error.message)) return error.message
+      return `${error.message}上一封的验证码 10 分钟内还能用，先在 ${maskEmail(s.email)} 里找找（包括垃圾邮件），收到后打 ${this.cmdFor(s, cmd)} code 六位数字。`
+    }
+    return null
+  }
+
   private statusText(s: StudentRecord, cmd: string): string {
     const st = this.statusOf(s)
     const lines = [`「${displayNameOf(s)}」${s.studentId ? `（学号 ${s.studentId}）` : ''}：${DIVISIONS[s.division]} · ${SLOTS[s.slot]}${s.className ? ` · ${s.className}` : ''}`]
-    if (s.pendingRegistration) lines.push(`报名中：等你填邮箱里的验证码（${cmd} code 六位数字）。`)
+    if (s.pendingRegistration) lines.push(...this.codeWaitText(s, cmd))
+    else if (s.pendingKeyReset) lines.push(...this.codeWaitText(s, cmd))
     else if (s.studentId === null) lines.push(`还没报完名：读过校规后用 ${cmd} agree 版本号。`)
     else if (!s.enabled) lines.push(`已经暂停上学（${cmd} on 恢复）。`)
     else if (st) lines.push(st.message)
@@ -575,18 +619,23 @@ export class School {
           if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return fail('邮箱格式不对。')
           if (!division) return fail('学部填 小学部、初中部 或 高中部。')
           if (!sl) return fail('时段填 上午班、下午班 或 晚班。')
-          // 还没报完名的草稿：同名的，或者就在这个会话里起的，直接改它（重新 enroll 一次不会多出一个学生）
-          const drafts = this.students.filter((x) => x.studentId === null && !x.pendingRegistration)
+          // 还没报完名的草稿：同名的，或者就在这个会话里起的，直接改它（重新 enroll 一次不会多出一个学生）。
+          // 已经发过验证码、还没填的也算（邮箱填错了）：发出去的验证码作废，要重新同意校规、重新发
+          const drafts = this.students.filter((x) => x.studentId === null)
           let s = drafts.find((x) => x.aiName === aiName) ?? (home ? drafts.find((x) => x.binding.home === home) : undefined)
           if (!s) {
             if (this.students.length >= MAX_STUDENTS) return fail(`最多带 ${MAX_STUDENTS} 个学生。没报完名的可以用 ${cmd} @AI名 forget 删掉。`)
             s = newStudent({ ownerName, aiName, division, slot: sl, email })
             this.students.push(s)
-          } else Object.assign(s, { ownerName, aiName, email, division, slot: sl })
+          }
+          const dropped = s.pendingRegistration ? maskEmail(s.email) : null
+          if (s.studentId === null && s.pendingRegistration) s.pendingRegistration = null
+          Object.assign(s, { ownerName, aiName, email, division, slot: sl })
           if (referrer && /^\d+$/.test(referrer)) s.binding.referrer = referrer
           if (home && !s.binding.home && !ctx.isSchoolSession?.(home)) s.binding.home = home
           this.save()
-          return ok(`好的：${ownerName}家的${aiName}，${DIVISIONS[division]} · ${SLOTS[sl]}，邮箱 ${maskEmail(email)}。\n报名前请先读校规：\n\n${await this.rulesText(cmd)}`)
+          const again = dropped ? `\n之前发到 ${dropped} 的验证码作废了，不用再填；读完校规后重新同意，验证码会发到新填的邮箱。` : ''
+          return ok(`好的：${ownerName}家的${aiName}，${DIVISIONS[division]} · ${SLOTS[sl]}，邮箱 ${maskEmail(email)}。${again}\n报名前请先读校规：\n\n${await this.rulesText(cmd)}`)
         }
         case 'agree': {
           const s = target()
@@ -596,17 +645,31 @@ export class School {
           const current = await this.http.rules()
           if (current.version !== version) return fail(`校规现在的版本是 ${current.version}，请先 ${cmd} rules 读一遍新的。`)
           const referrer = s.binding.referrer ? Number(s.binding.referrer) : undefined
-          await startRegistration(this.http, s, this.plugin, version, referrer)
+          try {
+            await startRegistration(this.http, s, this.plugin, version, referrer)
+          } catch (error) {
+            const text = this.codeErrText(error, s, cmd)
+            if (text) return fail(text)
+            throw error
+          }
           this.save()
-          return ok(`学校把六位验证码发到了 ${maskEmail(s.email)}（${fmt(Date.parse(s.pendingRegistration!.expiresAt))} 前有效）。收到后打 ${cmd} code 验证码。`)
+          return ok(`学校把六位验证码发到了 ${maskEmail(s.email)}（${fmt(Date.parse(s.pendingRegistration!.expiresAt))} 前有效）。收到后打 ${this.cmdFor(s, cmd)} code 验证码。\n${this.resendHint(s, cmd)}`)
         }
         case 'code': {
           const s = target()
           const code = args[0] ?? ''
           if (!/^\d{6}$/.test(code)) return fail('验证码是六位数字。')
+          if (!s.pendingKeyReset && !s.pendingRegistration) {
+            if (s.studentId === null) return fail(`还没发验证码：读过校规后打 ${this.cmdFor(s, cmd)} agree 版本号（版本号在 ${cmd} rules 里），学校会把验证码发到 ${maskEmail(s.email)}。`)
+            return fail(`已经报完名了。钥匙丢了要换一把：${this.cmdFor(s, cmd)} key-reset`)
+          }
           if (s.pendingKeyReset) {
             try {
               await finishKeyReset(this.http, this.host.secrets, s, code)
+            } catch (error) {
+              const text = this.codeErrText(error, s, cmd)
+              if (text) return fail(text)
+              throw error
             } finally {
               this.save()
             }
@@ -617,6 +680,10 @@ export class School {
           }
           try {
             await finishRegistration(this.http, this.host.secrets, s, code)
+          } catch (error) {
+            const text = this.codeErrText(error, s, cmd)
+            if (text) return fail(text)
+            throw error
           } finally {
             // 学号先存下来
             if (home && !s.binding.home && !ctx.isSchoolSession?.(home)) s.binding.home = home
@@ -700,9 +767,15 @@ export class School {
           return await this.clubCommand(target(), args, cmd)
         case 'key-reset': {
           const s = target()
-          await startKeyReset(this.http, s)
+          try {
+            await startKeyReset(this.http, s)
+          } catch (error) {
+            const text = this.codeErrText(error, s, cmd)
+            if (text) return fail(text)
+            throw error
+          }
           this.save()
-          return ok(`如果学号和邮箱对得上，学校会把验证码发到 ${maskEmail(s.email)}。收到后打 ${cmd} code 验证码。`)
+          return ok(`如果学号和邮箱对得上，学校会把验证码发到 ${maskEmail(s.email)}（10 分钟内有效）。收到后打 ${this.cmdFor(s, cmd)} code 验证码。\n${this.resendHint(s, cmd)}`)
         }
         case 'withdraw': {
           const s = target()

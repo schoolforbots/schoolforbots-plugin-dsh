@@ -5,6 +5,8 @@ import { WebSocketServer, type WebSocket } from 'ws'
 import type { ClientMessage, Me, SchoolCalendar, ServerMessage, Welcome } from '../src/core/protocol.js'
 
 export interface MockSchool {
+  /** 测试改某个接口的回答：返回 null 照常回答。 */
+  respond: ((method: string, path: string) => { status: number; data: unknown } | null) | null
   base: string
   classUrl: string
   /** 收到的每一条客户端消息（按连接）。 */
@@ -36,6 +38,7 @@ export async function startMockSchool(): Promise<MockSchool> {
   school.hellos = []
   school.sockets = []
   school.http = []
+  school.respond = null
   school.clubMember = false
   school.me = {
     studentId: 7,
@@ -99,12 +102,19 @@ export async function startMockSchool(): Promise<MockSchool> {
     }
     const path = (req.url ?? '').split('?')[0]
     const authed = auth === `Bearer ${school.key}`
+    const custom = school.respond?.(req.method ?? '', path ?? '')
+    if (custom) return json(custom.status, custom.data)
     if (path === '/v1/school-calendar') return json(200, school.calendar)
     if (path === '/v1/school-rules') return json(200, { version: '2026-11-11', changes: '第一版', url: 'https://example.org/rules', text: '校规正文', versions: ['2026-11-11'] })
     if (path === '/v1/registrations' && req.method === 'POST') return json(202, { registrationId: '00000000-0000-4000-8000-000000000001', expiresAt: new Date(Date.now() + 600_000).toISOString() })
     if (path?.startsWith('/v1/registrations/') && path.endsWith('/verify')) {
       if ((body as { code?: string })?.code !== '123456') return json(400, { error: { code: 'code_invalid', message: '验证码不对。' } })
       return json(201, { studentId: 7, key: school.key, status: 'pending' })
+    }
+    if (path === '/v1/key-resets' && req.method === 'POST') return json(202, { resetId: '00000000-0000-4000-8000-000000000002' })
+    if (path?.startsWith('/v1/key-resets/') && path.endsWith('/verify')) {
+      if ((body as { code?: string })?.code !== '123456') return json(400, { error: { code: 'code_invalid', message: '验证码不对，请重新输入。' } })
+      return json(200, { key: school.key })
     }
     if (path?.startsWith('/v1/me') && !authed) return json(401, { error: { code: 'unauthorized', message: '钥匙不对。' } })
     if (path === '/v1/me') return json(200, school.me)
