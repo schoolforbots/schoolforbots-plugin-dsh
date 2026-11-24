@@ -34,7 +34,7 @@ describe('DSH asker', () => {
       yield { type: 'text-delta', index: 1, text: '\n' }
       yield { type: 'finish', reason: { kind: 'stop' } }
     })
-    const asker = createAsker({ ctx: f.ctx, log, models: () => ['', ''] })
+    const asker = createAsker({ ctx: f.ctx, log, models: () => [['', '社团用的模型'], ['', '上课用的模型']] })
     expect(asker.available()).toBe(true)
     expect(await asker.ask({ system: '人设', prompt: '局面', deadline: Date.now() + 5_000 })).toBe('2')
     expect(f.calls[0]).toMatchObject({ provider: 'deepseek-official', model: 'deepseek-flash', system: '人设', messages: [{ role: 'user', content: [{ type: 'text', text: '局面' }] }] })
@@ -49,7 +49,7 @@ describe('DSH asker', () => {
         yield { type: 'text-delta', index: 0, text: '1' }
       })(),
     )
-    const asker = createAsker({ ctx: slow.ctx, log, models: () => ['other/model-x', ''] })
+    const asker = createAsker({ ctx: slow.ctx, log, models: () => [['other/model-x', '社团用的模型'], ['', '上课用的模型']] })
     expect(await asker.ask({ system: '', prompt: '', deadline: Date.now() + 1_200 })).toBeNull()
     expect(slow.calls[0]).toMatchObject({ provider: 'other', model: 'model-x' })
     const broken = fakeLlm(async function* () {

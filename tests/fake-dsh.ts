@@ -14,6 +14,8 @@ export interface FakeSession {
   restricted: unknown[]
   /** 每一步 pre-step 之后真正进入模型的消息。 */
   entered: UserMessage[][]
+  /** agent.model.select 选过的模型（provider/model），按顺序。 */
+  models: string[]
 }
 
 export interface FakeDsh {
@@ -33,6 +35,8 @@ export interface FakeDsh {
   appendRuntimeContext: boolean
   /** 不支持 tools.restrict。 */
   noRestrict: boolean
+  /** 用这个模型（provider/model）的一轮以 error 结束。 */
+  failModel: string | null
   /** 机器人的主人在会话 sid 里说话：跑一遍 pre-step，返回进入这一步的消息。 */
   ownerSays: (sid: string, text: string, source?: UserMessage['source']) => Promise<UserMessage[]>
   emit: (name: string, ...args: unknown[]) => void
@@ -92,6 +96,12 @@ export function createFakeDsh(): FakeDsh {
           ? {}
           : new FakeTools(s.restricted),
       },
+      model: {
+        select: (sel) => {
+          const label = `${sel.provider}/${sel.model}`
+          if (s.models.at(-1) !== label) s.models.push(label)
+        },
+      },
       followup(msg) {
         s.messages.push(msg)
         const session = { id: sid }
@@ -111,6 +121,10 @@ export function createFakeDsh(): FakeDsh {
               if (fake.lateReply) emit('session/event', session, { type: 'assistant/message', data: { turn: t, message: { content: [{ type: 'text', text: fake.reply(msg.content[0]!.text, sid) }] } } })
               emit('session/event', session, { type: 'turn/end', data: { turn: t, reason: { kind: 'aborted' } } })
             }, 10)
+            return
+          }
+          if (fake.failModel && s.models.at(-1) === fake.failModel) {
+            emit('session/event', session, { type: 'turn/end', data: { turn: t, reason: { kind: 'error', error: { code: 'AUTH_FAILED', message: 'no key' } } } })
             return
           }
           const text = fake.reply(msg.content[0]!.text, sid)
@@ -150,7 +164,7 @@ export function createFakeDsh(): FakeDsh {
     sessionController: {
       create: async (req) => {
         const sid = `s${++n}`
-        sessions.set(sid, { preset: req.agentPreset, workspaceId: req.workspaceId, messages: [], restricted: [], entered: [] })
+        sessions.set(sid, { preset: req.agentPreset, workspaceId: req.workspaceId, messages: [], restricted: [], entered: [], models: [] })
         return { sessionId: sid }
       },
       resolveAgent: async (sid) => ({ agent: agentFor(sid) }),
@@ -173,6 +187,7 @@ export function createFakeDsh(): FakeDsh {
     lateReply: false,
     appendRuntimeContext: true,
     noRestrict: false,
+    failModel: null,
     emit,
     async ownerSays(sid, text, source = { kind: 'user', rpcId: 'r1' }) {
       const owner: UserMessage = { id: `u${++n}`, role: 'user', content: [{ type: 'text', text }], source }

@@ -35,7 +35,7 @@ export interface Agent {
   session?: Session
   followup(message: UserMessage): void
   ctx?: { tools?: { restrict?: (f: { allow?: string[]; deny?: string[] }) => () => void } }
-  model?: { select?: (sel: { provider: string; model: string }) => unknown }
+  model?: { select?: (sel: { provider: string; model: string; reasoningEffort?: string }) => unknown }
 }
 
 export interface SessionEvent {
