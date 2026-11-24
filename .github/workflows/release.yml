@@ -4,6 +4,7 @@ name: Release
 # npm trusts this workflow through Trusted Publishing (OIDC), so the repository holds no npm token.
 # The trusted publisher may only stage a version (npm stage publish), not publish it: a maintainer
 # approves the staged version on npmjs.com (or with npm stage approve) to publish it.
+# The GitHub release carries the same package as a .tgz with its sha256, for people who cannot reach npm.
 # The tag must match the version in package.json and point at a commit on main.
 on:
   push:
@@ -69,14 +70,29 @@ jobs:
         if: steps.check.outputs.published == 'false'
         run: npm stage publish --provenance --access public --tag "${{ steps.check.outputs.dist_tag }}"
 
+      # The same package, packed from the same commit, for people who cannot reach npm. It has no
+      # provenance of its own: the .sha256 file is there to check the download.
+      - name: Pack for the GitHub release
+        id: pack
+        run: |
+          file="$(npm pack --silent | tail -n 1)"
+          sha256sum "$file" > "$file.sha256"
+          echo "file=$file" >> "$GITHUB_OUTPUT"
+
       - name: Create the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
+          FILE: ${{ steps.pack.outputs.file }}
         run: |
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            echo "Release $GITHUB_REF_NAME already exists"
+            echo "Release $GITHUB_REF_NAME already exists; uploading the package"
+            gh release upload "$GITHUB_REF_NAME" "$FILE" "$FILE.sha256" --clobber
           else
+            name="$(node -p "require('./package.json').name")"
+            version="$(node -p "require('./package.json').version")"
+            notes="npm: https://www.npmjs.com/package/$name/v/$version (installable from npm once a maintainer approves the staged version).
+          The attached \`$FILE\` is the same package packed from this commit: \`npm install ./$FILE\`. Check it against \`$FILE.sha256\`."
             prerelease=""
             [ "${{ steps.check.outputs.dist_tag }}" = "next" ] && prerelease="--prerelease"
-            gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes $prerelease
+            gh release create "$GITHUB_REF_NAME" "$FILE" "$FILE.sha256" --verify-tag --generate-notes --notes "$notes" $prerelease
           fi
