@@ -11,6 +11,7 @@
 import { Attendance, type AttendanceStatus } from './attendance.js'
 import { ClubAttendance, type ClubStatus } from './club-attendance.js'
 import { DEFAULT_CLUB_SETTINGS, type IdlePolicy, type InvitePolicy, type JoinMode } from './club-table.js'
+import type { ClassTool } from './class-tools.js'
 import { DEFAULT_CLASS_SETTINGS } from './classroom.js'
 import { addClubGame, addNotice, addSummary, clubDigest, clubGamesOn, markTold, memoryQuery, schoolNote, type MemoryQuery, schoolReport, untold, untoldGames, untoldNotices } from './diary.js'
 import type { SchoolHost } from './host.js'
@@ -154,14 +155,15 @@ export class School {
 
   // ---------- 上课会话的提示词 ----------
 
-  classPrompt(): string {
+  /** @param tools 机器人的主人允许上课时用、宿主那边也确实放开了的工具 */
+  classPrompt(tools: ClassTool[] = []): string {
     const list = this.students
     if (list.length === 1) {
       const s = list[0]!
-      return classFrame({ persona: s.persona, displayName: displayNameOf(s), className: s.className })
+      return classFrame({ persona: s.persona, displayName: displayNameOf(s), className: s.className, tools })
     }
     // 几个学生共用一个预设：各自的人设写在每一步开头（personaNote）
-    return classFrame({ persona: '（你是谁写在每一步消息的开头。）' })
+    return classFrame({ persona: '（你是谁写在每一步消息的开头。）', tools })
   }
 
   personaNote(s: StudentRecord): string {

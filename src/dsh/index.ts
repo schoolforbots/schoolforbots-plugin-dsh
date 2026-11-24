@@ -6,6 +6,7 @@
 import { readFileSync } from 'node:fs'
 import { createApp, DEFAULT_CONFIG, OWNER_ONLY, type App, type AppConfig, type ToolGuard } from './app.js'
 import { createAsker } from './asker.js'
+import { createClassTools } from './class-tools.js'
 import { createModels } from './models.js'
 import { createBrain, roomDirOf } from './brain.js'
 import { service, type CommandDef, type Credentials, type DshContext, type Logger, type ToolDef, type ToolRegistrationOptions } from './host.js'
@@ -46,6 +47,7 @@ export const Config = Schema
       initiateChance: live(Schema.number().min(0).max(1).step(0.05).default(DEFAULT_CONFIG.initiateChance)).description('主动找同学搭话的概率（每段课后掷一次骰子，0～1）。学校每节课最多让主动搭话 3 次。'),
       replyChance: live(Schema.number().min(0).max(1).step(0.05).default(DEFAULT_CONFIG.replyChance)).description('同学找 AI 说话时，AI 回应的概率（0～1）。'),
       maxRounds: live(Schema.natural().min(1).max(50).default(DEFAULT_CONFIG.maxRounds)).description('一段私聊最多聊几轮。可以高过学校的上限，聊得太久老师会点名提醒。'),
+      classTools: live((Schema.string().role?.('textarea') ?? Schema.string()).default('')).description('上课时允许 AI 用的工具（比如查它自己的记忆）：一行一个工具名，冒号后面可以写一句说明，告诉 AI 什么时候用。工具查到的内容可能被 AI 说进课堂、留在学校的记录和放学小结里；AI 会被要求不在课上说你的私事。要你批准的工具课上一律不调用。'),
       classModel: live(Schema.string().default('')).description('上课用的模型（provider/model）。不填 = 用 DSH 的默认模型。填的模型用不了或者出错时，自动换 DSH 的默认模型。'),
       morning: live(Schema.string().default(DEFAULT_CONFIG.morning)).description('上午班的上课时间（北京时间）。只在学校校历没给出时间时使用。'),
       afternoon: live(Schema.string().default(DEFAULT_CONFIG.afternoon)).description('下午班的上课时间。只在学校校历没给出时间时使用。'),
@@ -107,6 +109,14 @@ export function apply(ctx: DshContext, rawConfig: Partial<AppConfig> = {}) {
   let app: App | null = null
   // 上课、社团用的模型：先查能不能用，用不了、出错了换 DSH 的默认模型，并告诉机器人的主人
   const picker = createModels({ ctx, log, onNotice: (student, text) => app?.school.trouble(student, text) })
+  // 上课时放开的工具：机器人的主人填的，去掉插件自己的和 DSH 里没有的
+  const classTools = createClassTools({
+    ctx,
+    log,
+    text: () => config.classTools,
+    own: () => (app ? [...app.tools.map((t) => t.name), app.memoryTool.name] : []),
+    onNotice: (student, text) => app?.school.trouble(student, text),
+  })
   const brain = createBrain({
     ctx,
     log,
@@ -115,6 +125,7 @@ export function apply(ctx: DshContext, rawConfig: Partial<AppConfig> = {}) {
     classModel: () => config.classModel,
     onTrouble: (student, text) => app?.school.trouble(student, text),
     picker,
+    tools: (student) => classTools.forSession(student).map((t) => t.name),
   })
   // 社团：每一步无状态地问一次模型（ctx.llm.stream），不开会话
   const asker = createAsker({ ctx, log, picker, models: () => [[config.clubModel, '社团用的模型'], [config.classModel, '上课用的模型']] })
@@ -140,7 +151,7 @@ export function apply(ctx: DshContext, rawConfig: Partial<AppConfig> = {}) {
   const school = app
 
   // 上课会话的系统提示词：预设里的 {{schoolforbots_class_prompt}}。变量一定要有值，否则整次组装失败。
-  ctx.effect(() => ctx.systemPrompt!.variable('schoolforbots_class_prompt', () => school.classPrompt()))
+  ctx.effect(() => ctx.systemPrompt!.variable('schoolforbots_class_prompt', () => school.classPrompt(classTools.allowed())))
 
   ctx.on('session/event', (session: { id?: string }, event: never) => brain.onSessionEvent(session, event))
   // 上课会话里去掉别的插件在 pre-step 塞的消息

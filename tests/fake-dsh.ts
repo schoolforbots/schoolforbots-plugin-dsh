@@ -37,16 +37,25 @@ export interface FakeDsh {
   noRestrict: boolean
   /** 用这个模型（provider/model）的一轮以 error 结束。 */
   failModel: string | null
+  /** 别的插件注册的全局工具名（ctx.tools.definitions() 里有，restrict 认得）。 */
+  globalTools: string[]
+  /** 在会话 sid 里调一次工具：跑一遍 tools/pre-execute，最里面的默认决定是 base。 */
+  preExecute: (sid: string, name: string, base?: { kind: string }) => Promise<{ kind: string; reason?: string }>
   /** 机器人的主人在会话 sid 里说话：跑一遍 pre-step，返回进入这一步的消息。 */
   ownerSays: (sid: string, text: string, source?: UserMessage['source']) => Promise<UserMessage[]>
   emit: (name: string, ...args: unknown[]) => void
   dispose: () => Promise<void>
 }
 
-/** 照真 DSH：restrict 是类方法，要用 this（单独取出来调用会抛错）。 */
+/** 照真 DSH：restrict 是类方法，要用 this（单独取出来调用会抛错）；名单里有不认识的工具名会报错。 */
 class FakeTools {
-  constructor(private readonly log: unknown[]) {}
+  constructor(
+    private readonly log: unknown[],
+    private readonly known: () => string[],
+  ) {}
   restrict(f: { allow?: string[]; deny?: string[] }): () => void {
+    const unknown = (f.allow ?? []).filter((n) => !this.known().includes(n))
+    if (unknown.length) throw new Error(`unknown tool: ${unknown.join(', ')}`)
     this.log.push(f)
     return () => {}
   }
@@ -94,7 +103,7 @@ export function createFakeDsh(): FakeDsh {
       ctx: {
         tools: fake.noRestrict
           ? {}
-          : new FakeTools(s.restricted),
+          : new FakeTools(s.restricted, () => [...tools.keys(), ...fake.globalTools]),
       },
       model: {
         select: (sel) => {
@@ -151,7 +160,10 @@ export function createFakeDsh(): FakeDsh {
     logger: () => ({ info: () => {}, warn: () => {}, debug: () => {} }),
     agents: { get: (id) => agents.get(id) },
     systemPrompt: { variable: (name, fn) => (variables.set(name, fn), () => variables.delete(name)) },
-    tools: { register: (def, options) => (tools.set(def.name, def), toolOptions.set(def.name, options ?? {}), () => (tools.delete(def.name), toolOptions.delete(def.name))) },
+    tools: {
+      register: (def, options) => (tools.set(def.name, def), toolOptions.set(def.name, options ?? {}), () => (tools.delete(def.name), toolOptions.delete(def.name))),
+      definitions: () => [...tools.keys(), ...fake.globalTools].map((name) => ({ name })),
+    } as DshContext['tools'],
     commands: { register: (def) => (commands.set(def.name, def), () => commands.delete(def.name)) },
     workspaceRegistry: {
       list: () => workspaces as never,
@@ -188,6 +200,14 @@ export function createFakeDsh(): FakeDsh {
     appendRuntimeContext: true,
     noRestrict: false,
     failModel: null,
+    globalTools: [],
+    async preExecute(sid, name, base = { kind: 'allow' }) {
+      const list = [...(listeners.get('tools/pre-execute') ?? [])]
+      const chain = [...list.filter((l) => l.prepend).reverse(), ...list.filter((l) => !l.prepend)]
+      const exec = { name, agent: agentFor(sid), arguments: {} }
+      const run = (i: number): Promise<{ kind: string; reason?: string }> => (i >= chain.length ? Promise.resolve(base) : (chain[i]!.fn(exec, () => run(i + 1)) as Promise<{ kind: string; reason?: string }>))
+      return run(0)
+    },
     emit,
     async ownerSays(sid, text, source = { kind: 'user', rpcId: 'r1' }) {
       const owner: UserMessage = { id: `u${++n}`, role: 'user', content: [{ type: 'text', text }], source }
