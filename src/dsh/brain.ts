@@ -7,6 +7,8 @@
 // - 上课会话里藏掉所有全局工具，只留机器人的主人在设置里放开的几个（class-tools.ts）：同学的话再怎么写，这个会话也只能用这几个工具。
 //   藏不住就不用这个会话；放开的名单变了，换新会话。要机器人的主人批准的调用课上直接拒绝（没人点"允许"），一步最多调 MAX_TOOL_CALLS 次。
 // - 别的插件在 agent/pre-step 往上课会话里塞的消息（比如记忆插件塞机器人的主人的记忆）去掉，只留我们自己的和 runtime-context。
+// - 开过的上课会话记进存档：这节课中途换掉的马上归档；每个学生只留最近 KEEP_LESSONS 节课的，更早的归档（开新一节课时、插件启动时）；
+//   机器人的主人打过字的会话一直不动。归档的会话不在 DSH 侧边栏里显示，能取消归档找回来。
 // - 上课用的模型先查能不能用，不能用就用 DSH 的默认模型；这一轮模型出错，时间还够就换默认模型、开新会话再问一次（models.ts）。
 //
 // 回合对账：真 DSH 的 user/message 事件的 data 就是消息本身，没有 turn。所以先等到我们这条消息的
@@ -19,6 +21,7 @@ import type { ThinkRequest } from '../core/classroom.js'
 import { fence } from '../core/prompts.js'
 import { isOwnerTyped, service, type Agent, type DshContext, type Logger, type PreStepDecision, type PreStepPayload, type SessionController, type SessionEvent, type UserMessage, type WorkspaceRegistry } from './host.js'
 import { createModels, type Choice, type Models } from './models.js'
+import type { ClassSessionRecord } from './store.js'
 
 export const SOURCE_KIND = 'schoolforbots'
 const ROOM_TITLE = '机器人网校 · 插件自用（别在这里聊天）'
@@ -26,6 +29,8 @@ const ROOM_TITLE = '机器人网校 · 插件自用（别在这里聊天）'
 const KEEP_KINDS = new Set([SOURCE_KIND, 'runtime-context'])
 /** 同一个学生连续这么多步出错，就告诉机器人的主人。 */
 const TROUBLE_AFTER = 3
+/** 每个学生留最近几节课的上课会话不归档。 */
+export const KEEP_LESSONS = 3
 /** 一步里最多调几次工具。 */
 const MAX_TOOL_CALLS = 3
 /** 模型出错以后，至少还剩这么久才换默认模型再问一次。 */
@@ -49,6 +54,8 @@ export interface BrainOptions {
   picker?: Models
   /** 给这个学生开上课会话时放开哪些工具（名字）；不给就一个都不放开。 */
   tools?: (student: string) => string[]
+  /** 开过的上课会话记在哪（存档）；不给就只记在内存里。 */
+  ledger?: { load(): ClassSessionRecord[]; save(records: ClassSessionRecord[]): void }
 }
 
 interface Pending {
@@ -87,6 +94,18 @@ export function createBrain(o: BrainOptions) {
   let workspace: { id: string; path: string } | null = null
   let sourceKind = SOURCE_KIND
   let disposed = false
+  /** 开过、还没归档的上课会话。 */
+  let records: ClassSessionRecord[] = (() => {
+    try {
+      return [...(o.ledger?.load() ?? [])]
+    } catch {
+      return []
+    }
+  })()
+  /** 每个学生这节课开始的时刻。 */
+  const lessonAt = new Map<string, number>()
+  /** 正在归档的会话：别重复归档。 */
+  const archiving = new Set<string>()
   const picker = o.picker ?? createModels({ ctx: o.ctx, log: o.log })
 
   const controller = () => service<SessionController>(o.ctx, 'sessionController')
@@ -183,20 +202,21 @@ export function createBrain(o: BrainOptions) {
       } catch (error) {
         o.log.info(`上课会话恢复不了（${(error as Error).message}），新开一个`)
       }
-      sessions.delete(student)
+      retire(existing)
     }
     const ws = await ensureWorkspace()
     const r = await controller()!.create({ workspaceId: ws.id, agentPreset: o.preset })
     const sid = String(r.sessionId)
     ours.add(sid)
+    remember({ sid, student, lessonAt: lessonAt.get(student) ?? Date.now() })
     if (disposed) throw new Error('插件已卸载')
     const agent = await resolveAgent(sid)
     if (!clean(agent, sid)) {
-      lost.add(sid)
+      retire(sid)
       throw new Error('DSH 交回来的不是一个干净的新会话，这一步不答')
     }
     if (!hideTools(agent, allow)) {
-      lost.add(sid)
+      retire(sid)
       throw new Error('上课会话藏不住工具（DSH 版本不支持 tools.restrict），这一步不答')
     }
     sessions.set(student, sid)
@@ -221,10 +241,73 @@ export function createBrain(o: BrainOptions) {
     }
   }
 
-  /** 这个会话不再用：下一步换新会话（上一轮可能还会迟到地说完）。 */
-  function retire(sid: string): void {
+  /**
+   * 这个会话不再用：下一步换新会话（上一轮可能还会迟到地说完）。
+   * 换掉的马上归档；让给机器人的主人的（owner）记下来，一直不动。
+   */
+  function retire(sid: string, owner = false): void {
     lost.add(sid)
     for (const [k, v] of sessions) if (v === sid) sessions.delete(k)
+    const rec = records.find((r) => r.sid === sid)
+    if (!rec) return
+    if (owner) {
+      rec.ownerTook = true
+      delete rec.retired
+    } else if (!rec.ownerTook) rec.retired = true
+    saveRecords()
+    if (!owner && !rec.ownerTook) void archive(sid)
+  }
+
+  function remember(rec: ClassSessionRecord): void {
+    records.push(rec)
+    saveRecords()
+  }
+
+  function saveRecords(): void {
+    try {
+      o.ledger?.save(records)
+    } catch (error) {
+      o.log.warn('记不下上课会话：', (error as Error)?.message)
+    }
+  }
+
+  /** 归档一个上课会话（停掉它还在跑的事），归档了就不再记着。归档失败也不再记着：只是侧边栏里多一个。 */
+  async function archive(sid: string): Promise<void> {
+    if (archiving.has(sid)) return
+    const reg = registry()
+    if (typeof reg?.archiveSession !== 'function') return
+    archiving.add(sid)
+    try {
+      await reg.archiveSession(sid, { stopActivity: true })
+    } catch (error) {
+      o.log.info(`上课会话归档不了（${(error as Error)?.message ?? error}），不再管它`)
+    } finally {
+      archiving.delete(sid)
+      records = records.filter((r) => r.sid !== sid)
+      saveRecords()
+    }
+  }
+
+  /**
+   * 把该归档的上课会话归档：中途换掉的、这节课里以前开的（插件重启前开的，现在不用了），和每个学生最近 KEEP_LESSONS 节课以前的。
+   * 正在用的、让给机器人的主人的不动。
+   */
+  async function tidy(): Promise<void> {
+    if (disposed) return
+    const inUse = new Set([...sessions.values(), ...pending.keys()])
+    const recent = new Map<string, Set<number>>()
+    for (const r of records) {
+      const set = recent.get(r.student) ?? new Set<number>()
+      set.add(r.lessonAt)
+      recent.set(r.student, set)
+    }
+    // 正在上的这一节也算一节（刚开课时还没开会话）
+    for (const [student, at] of lessonAt) recent.get(student)?.add(at)
+    for (const [student, set] of recent) recent.set(student, new Set([...set].sort((a, b) => b - a).slice(0, KEEP_LESSONS)))
+    const due = records.filter(
+      (r) => !r.ownerTook && !inUse.has(r.sid) && (r.retired || r.lessonAt === lessonAt.get(r.student) || !recent.get(r.student)!.has(r.lessonAt)),
+    )
+    for (const r of due) await archive(r.sid)
   }
 
   function trouble(student: string, why: string): void {
@@ -295,12 +378,19 @@ export function createBrain(o: BrainOptions) {
 
   return {
     available,
-    /** 新的一节课：下一步开新会话。 */
-    newLesson(student: string) {
+    /**
+     * 新的一节课：下一步开新会话；更早的上课会话该归档的归档。
+     * startsAt 是课表上这节课开始的时刻：插件在课上重启（热重载）后还是同一节课，重启前开的会话算中途换掉的。
+     */
+    newLesson(student: string, startsAt?: number) {
       sessions.delete(student)
       failures.delete(student)
       started.delete(student)
+      lessonAt.set(student, startsAt ?? Date.now())
+      void tidy()
     },
+    /** 插件启动时整理一遍：把关着 DSH 时攒下的旧上课会话归档。 */
+    tidy,
     /** 同一个学生一次只想一件事（Classroom 本来也排着队，这里再保一道）。 */
     think(student: string, title: string, req: ThinkRequest): Promise<string | null> {
       if (!available() || disposed) return Promise.resolve(null)
@@ -348,7 +438,7 @@ export function createBrain(o: BrainOptions) {
           // 过滤掉的话 onSessionEvent 永远看不到机器人的主人说话）
           const claimed = Array.isArray(payload?.messages) ? payload.messages : decision.messages
           if (claimed.some((m) => isOwnerTyped(m?.source))) {
-            retire(sid)
+            retire(sid, true)
             const p = pending.get(sid)
             if (p) settle(sid, p, null)
             o.log.warn('机器人的主人在上课会话里说话了：这个会话让给机器人的主人，课堂换到新会话')
@@ -370,7 +460,7 @@ export function createBrain(o: BrainOptions) {
         const m = ((d as { message?: unknown }).message ?? d) as { id?: string; source?: { kind: string; [k: string]: unknown } }
         if (isOwnerTyped(m.source)) {
           // 机器人的主人在上课会话里说话了：让给机器人的主人，以后不再往里发
-          retire(sid)
+          retire(sid, true)
           const p = pending.get(sid)
           if (p) settle(sid, p, null)
           o.log.warn('机器人的主人在上课会话里说话了：这个会话让给机器人的主人，课堂换到新会话')

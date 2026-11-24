@@ -245,7 +245,9 @@ export class Attendance {
   /** 上一节课：断了就按规矩重连，直到下课或者被告知别再来。 */
   private async attend(key: string, win: LessonWindow): Promise<void> {
     const saved = this.d.loadResume()
-    let resume = saved && saved.date === win.date ? { sessionId: saved.sessionId, lastSeq: saved.lastSeq } : null
+    // 新的课堂（插件刚启动、热重载过）：前面的事都不记得了，请学校从头补发这节课（lastSeq 0）。
+    // 补发的事标着"补发"进了课堂记录，下一步的 AI 就知道这节课前面讲了什么；同一个课堂里断线重连还是接着 lastSeq。
+    let resume = saved && saved.date === win.date ? { sessionId: saved.sessionId, lastSeq: 0 } : null
     const room = new Classroom({ ...this.d.classroom(win), send: (m) => this.link?.send(m) ?? Promise.resolve({ type: 'ack', id: '', ok: false, error: { code: 'disconnected', message: '' } }), onSummary: (s, id) => this.d.onSummary(s, id) })
     let failures = 0
     try {

@@ -174,6 +174,41 @@ describe('Attendance', () => {
     await running
   })
 
+  it('asks the school to replay the lesson from the start after a restart, so the AI hears what came before', async () => {
+    // 插件在课上重启过：存档里记着这节课的 sessionId 和 lastSeq 5
+    let hello: Record<string, unknown> | null = null
+    const asked: string[] = []
+    school.onHello = (ws, h) => {
+      hello = h as Record<string, unknown>
+      school.push(ws, school.welcome())
+      school.push(ws, { type: 'class.event', seq: 1, replayed: true, at: '', event: { kind: 'teacher', text: '今天讲静夜思' } })
+      school.push(ws, { type: 'class.event', seq: 2, replayed: true, at: '', event: { kind: 'segment', index: 1, text: '床前明月光' } })
+      school.push(ws, { type: 'called_on', callId: 1, question: '讲了什么？' })
+    }
+    school.onClient = (ws, msg) => school.push(ws, { type: 'ack', id: msg.id, ok: true })
+    const att = new Attendance({
+      http: createSchoolHttp({ base: school.base }),
+      classUrl: school.classUrl,
+      plugin,
+      maxRounds: () => 5,
+      getKey: async () => school.key,
+      classroom: () => ({ think: async (req) => (asked.push(req.text), '讲了思乡'), random: () => 0.99, sleep: async () => {} }),
+      onSummary: () => {},
+      loadResume: () => ({ date: '2026-12-01', sessionId: 101, lastSeq: 5 }),
+      saveResume: () => {},
+      knownSummaries: () => [],
+      now: () => Date.parse('2026-12-01T12:05:00Z'),
+      random: () => 0,
+    })
+    const running = att.run()
+    await school.waitFor((m) => m.type === 'answer', 5_000)
+    att.stop()
+    await running
+    expect(hello).toMatchObject({ sessionId: 101, lastSeq: 0 })
+    expect(asked[0]).toContain('（补发）老师说：今天讲静夜思')
+    expect(asked[0]).toContain('（补发）第 1 段课文：床前明月光')
+  })
+
   it('does not reconnect at once when the doors of this very lesson are not open yet', async () => {
     // 插件按校历在 19:51 去了，上课服务还没开门：学校说下一节就是 20:00 这节
     let refusals = 2

@@ -30,7 +30,8 @@ export interface SchoolHost {
    */
   ask?(student: string, req: { system: string; prompt: string; deadline: number }): Promise<string | null>
   /** 新的一节课开始了（宿主可以换一个新会话）。 */
-  newLesson(student: string): void
+  /** @param startsAt 这节课开始的时刻（学校的课表）：同一节课重启以后还是这个值 */
+  newLesson(student: string, startsAt?: number): void
   /** 现在能不能让 AI 在课上说话（比如 DSH 的 headless 组合就不能）。 */
   canThink(): boolean
   /** 钥匙放哪。名字由 keyName(aiId) 给出。 */

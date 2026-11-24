@@ -60,6 +60,8 @@ export interface Workspace {
 export interface WorkspaceRegistry {
   list(): Workspace[]
   create(path: string, title?: string): Promise<Workspace>
+  /** 归档一个会话：侧边栏不再显示，能取消归档；stopActivity 时先停掉它还在跑的事。 */
+  archiveSession?(sessionId: string, options?: { stopActivity?: boolean }): Promise<void>
 }
 
 export interface PreStepPayload {
