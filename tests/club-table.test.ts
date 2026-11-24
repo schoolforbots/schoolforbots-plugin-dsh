@@ -4,7 +4,7 @@ import { ClubTable, DEFAULT_CLUB_SETTINGS, type AskRequest, type ClubSettings } 
 import type { ClubGameRecord } from '../src/core/doudizhu.js'
 import { bidTurn, clubWelcome, ME, P52, P61, playTurn, result, room } from './club-fixtures.js'
 
-function setup(o: { answers?: (string | null)[]; ack?: (m: ClubOutgoing) => ClubAck | undefined; settings?: Partial<ClubSettings>; wantMore?: () => boolean; random?: number; now?: () => number } = {}) {
+function setup(o: { answers?: (string | null)[]; ack?: (m: ClubOutgoing) => ClubAck | undefined; settings?: Partial<ClubSettings>; wantMore?: () => boolean; random?: number; now?: () => number; siblings?: number[] } = {}) {
   const sent: ClubOutgoing[] = []
   const asked: AskRequest[] = []
   const timers: { ms: number; fn: () => void; cancelled: boolean }[] = []
@@ -26,6 +26,7 @@ function setup(o: { answers?: (string | null)[]; ack?: (m: ClubOutgoing) => Club
     },
     settings: () => ({ ...DEFAULT_CLUB_SETTINGS, ...o.settings }),
     wantMore: o.wantMore ?? (() => true),
+    ...(o.siblings ? { siblings: () => o.siblings! } : {}),
     onGame: (g) => games.push(g),
     onDone: () => done++,
     today: () => '2026-12-01',
@@ -344,5 +345,72 @@ describe('ClubTable reactions at more moments', () => {
     expect(asked.at(-1)).toBe('turn')
     release('1')
     await t.settle()
+  })
+})
+
+describe('ClubTable switching tables', () => {
+  const BOT1 = { studentId: null, displayName: '陪练小一', bot: true }
+  const BOT2 = { studentId: null, displayName: '陪练小二', bot: true }
+  const waitingRoom = (host = P52, roomId = 'm3x9p') => ({ roomId, host: { ...host, className: '初中部·晚班·2 班' }, seatsFree: 2, bots: false, gamesPlayed: 0 })
+
+  /** 进了房间、打完一局；lobby.list 时大厅里是 rooms（null：大厅不回话）。 */
+  async function played(seats: { studentId: number | null; displayName: string; bot: boolean }[], rooms: ReturnType<typeof waitingRoom>[] | null, o: Parameters<typeof setup>[0] = {}) {
+    let t: ReturnType<typeof setup>
+    t = setup({
+      ...o,
+      ack: (m) => {
+        if (m.type === 'lobby.list' && rooms) t.table.handle({ type: 'lobby', rooms })
+        return undefined
+      },
+    })
+    t.table.handle(clubWelcome({ room: room() }))
+    await t.settle()
+    t.table.handle(ge({ kind: 'dealt', gameId: 1024, seats, firstBidder: 0 }))
+    t.table.handle(over())
+    await t.settle()
+    return t
+  }
+
+  it('leaves a table of bots for a classmate waiting in the lobby, and quick-joins again', async () => {
+    const t = await played([BOT1, BOT2, ME], [waitingRoom()])
+    expect(t.sent).toContainEqual({ type: 'lobby.list' })
+    expect(t.sent).toContainEqual({ type: 'room.leave' })
+    expect(t.sent).not.toContainEqual({ type: 'room.ready' })
+    t.sent.length = 0
+    t.table.handle({ type: 'room.left', roomId: 'r7k2q', reason: 'left' })
+    await t.settle()
+    expect(t.sent).toEqual([{ type: 'room.quick' }])
+  })
+
+  it('stays when nobody is waiting, or the lobby does not answer', async () => {
+    const empty = await played([BOT1, BOT2, ME], [])
+    expect(empty.sent).toContainEqual({ type: 'room.ready' })
+    expect(empty.sent).not.toContainEqual({ type: 'room.leave' })
+
+    const silent = await played([BOT1, BOT2, ME], null)
+    expect(silent.sent).toContainEqual({ type: 'lobby.list' })
+    // 等不到大厅的回答：等的时间到了照常准备
+    silent.timers.at(-1)!.fn()
+    await silent.settle()
+    expect(silent.sent).toContainEqual({ type: 'room.ready' })
+    expect(silent.sent).not.toContainEqual({ type: 'room.leave' })
+  })
+
+  it('does not look for another table when a classmate sat at this one', async () => {
+    const t = await played([P52, BOT1, ME], [waitingRoom(P61)])
+    expect(t.sent).not.toContainEqual({ type: 'lobby.list' })
+    expect(t.sent).toContainEqual({ type: 'room.ready' })
+  })
+
+  it('does not count its own room or a room of another student of the same owner', async () => {
+    const t = await played([BOT1, BOT2, ME], [waitingRoom(P52, 'r7k2q'), waitingRoom(P61)], { siblings: [61] })
+    expect(t.sent).toContainEqual({ type: 'room.ready' })
+    expect(t.sent).not.toContainEqual({ type: 'room.leave' })
+  })
+
+  it('keeps playing with bots when the owner chose a room of bots', async () => {
+    const t = await played([BOT1, BOT2, ME], [waitingRoom()], { settings: { join: 'bots' } })
+    expect(t.sent).not.toContainEqual({ type: 'lobby.list' })
+    expect(t.sent).toContainEqual({ type: 'room.ready' })
   })
 })

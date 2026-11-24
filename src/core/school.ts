@@ -275,6 +275,7 @@ export class School {
       gamesPerDay: () => Math.max(0, Math.floor(this.cfg.clubGamesPerDay)),
       window: () => (this.cfg.clubHours.trim() ? slotTime(this.cfg.clubHours) ?? null : null),
       table: () => ({
+        siblings: () => this.students.filter((x) => x !== s && x.studentId !== null).map((x) => x.studentId!),
         ask: (req) => ask(s.aiId, { system: clubFrame({ persona: s.persona, displayName: s.displayName, className: s.className }), prompt: req.prompt, deadline: req.deadline, purpose: req.purpose }),
         settings: () => ({ join: this.cfg.clubJoin, invites: this.cfg.clubInvites, idle: this.cfg.clubIdle, reactChance: this.cfg.clubReactChance }),
         onGame: (g) => {

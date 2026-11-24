@@ -1,5 +1,8 @@
 // 连上社团以后做什么：进房、一局打完准备下一局、回邀请、处理空闲提示、轮到自己时问模型、发互动消息、打够了离开。
 //
+// 换桌：快速加入的学生和陪练打完一局（桌上只有自己是真人），看一眼大厅（lobby.list）。大厅里列的是公开、没在打、
+// 有空位的房间，里面一定有真人在等；有这样的房间（不算自己的房间和自家其他学生开的房间）就离开，再快速加入。
+//
 // 互动消息：被同桌点名、一局结束，再加上开局、地主定了、有人出炸弹或王炸、别人想了很久、自己要不起选了不要这几个时刻，
 // 都按主人设的概率问一次模型要不要发。每局上限和两条之间的间隔照服务器给的。
 // 下一个该动的是自己、或者正在想自己这一步时不问，免得和出牌抢模型；一次只问一条，最多等 10 秒。
@@ -10,6 +13,8 @@
 // - 读不出回答：再问一次；交了不合规则的（illegal_move）：带上 reason 再问一次；还不行交保底动作。
 // - stale_turn、not_your_turn：丢掉，等下一个 your_turn。同一个 turn 又来一条 your_turn：用新的 deadline，不重复交。
 import type { ClubAck, ClubLimits, ClubOutgoing, ClubReactions, ClubServerMessage, ClubWelcome, DoudizhuRules, IllegalMove, RoomEvent, YourTurn } from './club-protocol.js'
+
+type LobbyRoom = Extract<ClubServerMessage, { type: 'lobby' }>['rooms'][number]
 import { CLUB } from './club-protocol.js'
 import { fallbackTurn, gameRecord, parseTurn, turnPrompt, type ClubGameRecord, type TurnAction } from './doudizhu.js'
 import { fence, SILENT } from './prompts.js'
@@ -43,6 +48,8 @@ export interface ClubTableDeps {
   wantMore: () => boolean
   /** 坐进了一个房间：连接要记下房间编号，重连时带上。 */
   onRoom?: (roomId: string, lastSeq: number) => void
+  /** 同一个机器人的主人的其他学生的学号：他们开的房间进不去（学校不让同一个主人的学生同桌），换桌时不算。 */
+  siblings?: () => number[]
   onGame: (g: ClubGameRecord) => void
   /** 打够了、离开了房间：可以断开了。 */
   onDone: () => void
@@ -66,6 +73,8 @@ const LEAVE_PAUSE_MS = 5 * 60_000
 const SLOW_SHARE = 0.6
 /** 问要不要发互动消息，最多等多久。 */
 const REACT_ASK_MS = 10_000
+/** 看大厅最多等多久。 */
+const LOBBY_WAIT_MS = 3_000
 
 export class ClubTable {
   private me: number | null = null
@@ -74,6 +83,9 @@ export class ClubTable {
   private reactions: ClubReactions | null = null
   private limits: ClubLimits | null = null
   private inRoom = false
+  private roomId: string | null = null
+  /** 等着 lobby.list 的回答。 */
+  private lobbyWaiter: ((rooms: LobbyRoom[]) => void) | null = null
   private roomGames = 0
   private gameSeats: { studentId: number | null; displayName: string; bot: boolean }[] = []
   private mySeat: number | null = null
@@ -128,6 +140,7 @@ export class ClubTable {
         return this.onRoomEvent(msg.event, msg.replayed)
       case 'room.left':
         this.inRoom = false
+        this.roomId = null
         this.mySeat = null
         this.turn = null
         this.setToAct(null, true)
@@ -136,6 +149,9 @@ export class ClubTable {
         return
       case 'invite':
         void this.onInvite(msg)
+        return
+      case 'lobby':
+        this.lobbyWaiter?.(msg.rooms)
         return
       case 'your_turn':
         void this.onTurn(msg)
@@ -155,6 +171,7 @@ export class ClubTable {
     this.limits = w.limits
     if (w.room) {
       this.inRoom = true
+      this.roomId = w.room.roomId
       this.roomGames = w.room.gamesPlayed
       this.mySeat = w.room.seats.find((s) => s.player?.studentId === this.me)?.seat ?? null
       if (w.room.game) {
@@ -184,6 +201,7 @@ export class ClubTable {
         const room = ack.result?.room
         if (room) {
           this.inRoom = true
+          this.roomId = room.roomId
           this.roomGames = room.gamesPlayed
           this.mySeat = room.seats.find((s) => s.player?.studentId === this.me)?.seat ?? null
           this.d.onRoom?.(room.roomId, room.lastSeq)
@@ -218,10 +236,11 @@ export class ClubTable {
     this.d.onDone()
   }
 
-  /** 一局打完：还想打就准备，打够了就离开。 */
+  /** 一局打完：还想打就准备（刚才只和陪练打、大厅里有同学在等，就换桌），打够了就离开。 */
   private async afterGame(): Promise<void> {
     if (this.stopped) return
     if (this.d.wantMore()) {
+      if (await this.switchTable()) return
       const ack = await this.d.send({ type: 'room.ready' })
       if (!ack.ok && ack.error.code === 'not_in_room') void this.join()
       return
@@ -231,6 +250,42 @@ export class ClubTable {
       this.inRoom = false
       this.finish()
     }
+  }
+
+  /** 刚打完的一局桌上只有自己是真人、大厅里有别的同学在等：离开这个房间（room.left 以后快速加入）。换了返回 true。 */
+  private async switchTable(): Promise<boolean> {
+    if (this.d.settings().join !== 'quick' || !this.inRoom) return false
+    const others = this.gameSeats.filter((_, i) => i !== this.mySeat)
+    if (!others.length || others.some((p) => !p.bot)) return false
+    const rooms = await this.lobby()
+    const siblings = new Set(this.d.siblings?.() ?? [])
+    const waiting = rooms.filter((r) => r.roomId !== this.roomId && !(r.host.studentId !== null && siblings.has(r.host.studentId)))
+    if (!waiting.length || this.stopped || !this.inRoom) return false
+    const ack = await this.d.send({ type: 'room.leave' })
+    if (!ack.ok) return false
+    this.log(`大厅里有同学在等（${waiting.map((r) => `「${r.host.displayName}」`).join('、')}的房间），不和陪练打了，换桌`)
+    return true
+  }
+
+  /** 看一眼大厅：开着的房间；等不到、发不出去返回空。 */
+  private async lobby(): Promise<LobbyRoom[]> {
+    const got = new Promise<LobbyRoom[]>((resolve) => {
+      const cancel = this.after(LOBBY_WAIT_MS, () => {
+        this.lobbyWaiter = null
+        resolve([])
+      })
+      this.lobbyWaiter = (rooms) => {
+        cancel()
+        this.lobbyWaiter = null
+        resolve(rooms)
+      }
+    })
+    const ack = await this.d.send({ type: 'lobby.list' })
+    if (!ack.ok) {
+      this.lobbyWaiter?.([])
+      return []
+    }
+    return got
   }
 
   private async onInvite(inv: ClubMessageInvite): Promise<void> {
@@ -245,6 +300,7 @@ export class ClubTable {
     if (ack.ok && ack.result?.room) {
       const room = ack.result.room
       this.inRoom = true
+      this.roomId = room.roomId
       this.roomGames = room.gamesPlayed
       this.mySeat = room.seats.find((s) => s.player?.studentId === this.me)?.seat ?? null
       this.d.onRoom?.(room.roomId, room.lastSeq)
