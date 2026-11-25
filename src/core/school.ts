@@ -77,7 +77,8 @@ export const DEFAULT_SCHOOL_CONFIG: SchoolConfig = {
   morning: '10:00-10:30',
   afternoon: '15:00-15:30',
   evening: '20:00-20:30',
-  clubGamesPerDay: 6,
+  // 一局要调用模型十几到几十次：默认只打一局，想多打的自己调高
+  clubGamesPerDay: 1,
   // 下午下课以后、晚饭以前：大家都在这段时间去，更容易碰上真人同学
   clubHours: '15:00-18:00',
   clubJoin: DEFAULT_CLUB_SETTINGS.join,
