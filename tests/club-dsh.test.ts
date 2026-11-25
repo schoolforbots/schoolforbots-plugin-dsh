@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { School, DEFAULT_SCHOOL_CONFIG } from '../src/core/school.js'
+import { clubLogRow, newGameStats, type ClubLogRow } from '../src/core/club-log.js'
 import { addClubGame } from '../src/core/diary.js'
 import { gameRecord } from '../src/core/doudizhu.js'
 import { keyName, newStudent, type StudentRecord } from '../src/core/students.js'
@@ -62,6 +63,7 @@ describe('DSH asker', () => {
 
 describe('/school club', () => {
   let school: MockSchool | null = null
+  let logged: ClubLogRow[] = []
   let app: School | null = null
   afterEach(async () => {
     app?.dispose()
@@ -83,6 +85,7 @@ describe('/school club', () => {
         secrets: { get: async (n) => secrets.get(n) ?? null, set: async () => {}, unset: async () => {} },
         store,
         log,
+        clubLog: { append: (row) => void logged.push(row), recent: async (student, n) => logged.filter((x) => x.student === student).slice(-n) },
       },
       { ...DEFAULT_SCHOOL_CONFIG, base: school.base, enabled: false, memoryAccess: true, memoryNote: true, clubHours },
       { type: 'dsh', version: 'test' },
@@ -158,6 +161,23 @@ describe('/school club', () => {
     await school!.close()
     await setup(true, '')
     expect((await app!.ownerCommand('club', { home: 'home' })).text).toContain('打牌时间段清空了，社团开门就去（默认 15:00-18:00）')
+  })
+
+  it('shows the latest games from the game record', async () => {
+    logged = []
+    const { s } = await setup()
+    expect((await app!.ownerCommand('club log', { home: 'home' })).text).toContain('还没有对局记录')
+    for (const gameId of [1, 2, 3]) {
+      const g = gameRecord(result({ gameId }), 2, [P52, P61, ME], '2026-12-01')
+      logged.push(clubLogRow(s, g, { ...newGameStats('r1', null), seat: 2, seats: [P52, P61, ME], endedAt: Date.now() }))
+    }
+    const r = await app!.ownerCommand('club log 2', { home: 'home' })
+    expect(r.text).toContain('斗地主社最近 2 局（「阿杰家的小鱼」）')
+    expect(r.text).toContain('第 2 局')
+    expect(r.text).toContain('第 3 局')
+    expect(r.text).not.toContain('第 1 局')
+    expect((await app!.ownerCommand('club log 0', { home: 'home' })).ok).toBe(false)
+    expect(app!.help()).toContain('club log')
   })
 
   it('refuses to join when the host cannot ask the model', async () => {

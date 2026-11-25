@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ClubAck, ClubOutgoing, DoudizhuEvent } from '../src/core/club-protocol.js'
 import { ClubTable, DEFAULT_CLUB_SETTINGS, type AskRequest, type ClubSettings } from '../src/core/club-table.js'
+import type { GameDetail } from '../src/core/club-log.js'
 import type { ClubGameRecord } from '../src/core/doudizhu.js'
 import { bidTurn, clubWelcome, ME, P52, P61, playTurn, result, room } from './club-fixtures.js'
 
@@ -9,6 +10,7 @@ function setup(o: { answers?: (string | null)[]; ack?: (m: ClubOutgoing) => Club
   const asked: AskRequest[] = []
   const timers: { ms: number; fn: () => void; cancelled: boolean }[] = []
   const games: ClubGameRecord[] = []
+  const details: GameDetail[] = []
   const answers = [...(o.answers ?? [])]
   let done = 0
   const table = new ClubTable({
@@ -27,7 +29,10 @@ function setup(o: { answers?: (string | null)[]; ack?: (m: ClubOutgoing) => Club
     settings: () => ({ ...DEFAULT_CLUB_SETTINGS, ...o.settings }),
     wantMore: o.wantMore ?? (() => true),
     ...(o.siblings ? { siblings: () => o.siblings! } : {}),
-    onGame: (g) => games.push(g),
+    onGame: (g, d) => {
+      games.push(g)
+      details.push(d)
+    },
     onDone: () => done++,
     today: () => '2026-12-01',
     random: () => o.random ?? 0.99,
@@ -42,7 +47,7 @@ function setup(o: { answers?: (string | null)[]; ack?: (m: ClubOutgoing) => Club
   const settle = () => new Promise((r) => setTimeout(r, 20))
   const reacts = () => sent.filter((m) => m.type === 'react')
   const reactPrompts = () => asked.filter((a) => a.purpose === 'react').map((a) => a.prompt)
-  return { table, sent, asked, games, timers, settle, reacts, reactPrompts, done: () => done }
+  return { table, sent, asked, games, details, timers, settle, reacts, reactPrompts, done: () => done }
 }
 
 const over = (r = result()) => ({ type: 'room.event' as const, roomId: 'r7k2q', seq: 40, replayed: false, at: '', event: { kind: 'game' as const, game: 'doudizhu' as const, event: { kind: 'over' as const, result: r } } })
@@ -137,6 +142,29 @@ describe('ClubTable', () => {
     await t.settle()
     expect(t.games[0]).toMatchObject({ gameId: 1024, role: 'farmer', won: false, score: -3 })
     expect(t.sent).toContainEqual({ type: 'room.ready' })
+  })
+
+  it('counts its own moves, timeouts, trustee moves, retries and fallbacks for the game record', async () => {
+    let clock = 1_000_000
+    const t = setup({ answers: ['我想想……'], now: () => clock })
+    t.table.handle(clubWelcome({ room: room() }))
+    t.table.handle(dealt)
+    t.table.handle(bidTurn())
+    await t.settle()
+    t.table.handle(ge({ kind: 'bid', turn: 1, seat: 2, bid: 0, auto: null }))
+    t.table.handle(ge({ kind: 'play', turn: 6, seat: 2, move: bomb, cardsLeft: 10, multiplier: 2, auto: 'timeout' }))
+    t.table.handle(ge({ kind: 'pass', turn: 9, seat: 2, auto: 'trustee' }))
+    t.table.handle(ge({ kind: 'pass', turn: 10, seat: 0, auto: 'timeout' }))
+    clock += 300_000
+    t.table.handle(over())
+    await t.settle()
+    expect(t.details[0]).toMatchObject({ roomId: 'r7k2q', seat: 2, startedAt: 1_000_000, endedAt: 1_300_000, bid: 0, turns: 3, timeouts: 1, trustee: 1, asks: 2, retries: 1, fallbacks: 1 })
+    expect(t.details[0]!.seats.map((p) => p.displayName)).toEqual([P52.displayName, P61.displayName, ME.displayName])
+    // 下一局重新数
+    t.table.handle(ge({ kind: 'dealt', gameId: 1025, seats: [P52, P61, ME], firstBidder: 0 }))
+    t.table.handle(over(result({ gameId: 1025 })))
+    await t.settle()
+    expect(t.details[1]).toMatchObject({ turns: 0, asks: 0, bid: null })
   })
 
   it('leaves the room and says it is done once it has played enough', async () => {

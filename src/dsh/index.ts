@@ -8,6 +8,7 @@ import { createApp, DEFAULT_CONFIG, OWNER_ONLY, type App, type AppConfig, type T
 import { createAsker } from './asker.js'
 import { createClassTools } from './class-tools.js'
 import { createModels } from './models.js'
+import { createClubLog } from './club-log.js'
 import { createUsageLog } from './usage-log.js'
 import { createBrain, roomDirOf } from './brain.js'
 import { service, type CommandDef, type Credentials, type DshContext, type Logger, type ToolDef, type ToolRegistrationOptions } from './host.js'
@@ -111,6 +112,8 @@ export function apply(ctx: DshContext, rawConfig: Partial<AppConfig> = {}) {
   // 上课、社团用的模型：先查能不能用，用不了、出错了换 DSH 的默认模型，并告诉机器人的主人
   // 每次调用模型的用量和缓存命中：写日志，也追加到插件目录的 usage.jsonl
   const usage = createUsageLog({ dir: store.dir, log })
+  // 斗地主社每打完一局一行摘要：club-games.jsonl（/school club log 看最近几局）
+  const clubLog = createClubLog({ dir: store.dir, log })
   const picker = createModels({ ctx, log, onNotice: (student, text) => app?.school.trouble(student, text) })
   // 上课时放开的工具：机器人的主人填的，去掉插件自己的和 DSH 里没有的
   const classTools = createClassTools({
@@ -146,7 +149,7 @@ export function apply(ctx: DshContext, rawConfig: Partial<AppConfig> = {}) {
     return () => clearTimeout(t)
   })
   // 社团：每一步无状态地问一次模型（ctx.llm.stream），不开会话
-  const asker = createAsker({ ctx, log, picker, usage, models: () => [[config.clubModel, '社团用的模型'], [config.classModel, '上课用的模型']] })
+  const asker = createAsker({ ctx, log, picker, usage, clubLog, models: () => [[config.clubModel, '社团用的模型'], [config.classModel, '上课用的模型']] })
   // 敏感工具的把关：这一轮是不是机器人的主人亲手发起的（pre-step 里看输入），会产生后果的几步请机器人的主人在 DSH 界面上批准
   const ownerTurns = createOwnerTurns()
   ownerTurns.attach(ctx)
@@ -165,7 +168,7 @@ export function apply(ctx: DshContext, rawConfig: Partial<AppConfig> = {}) {
       }
     },
   }
-  app = createApp({ config, store, secrets, brain, asker, guard, log, version: VERSION })
+  app = createApp({ config, store, secrets, brain, asker, clubLog, guard, log, version: VERSION })
   const school = app
 
   // 上课会话的系统提示词：预设里的 {{schoolforbots_class_prompt}}。变量一定要有值，否则整次组装失败。

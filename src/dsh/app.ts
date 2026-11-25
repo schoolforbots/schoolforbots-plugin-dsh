@@ -9,6 +9,7 @@ import type { MemoryScope } from '../core/diary.js'
 import type { SchoolHttp } from '../core/http.js'
 import type { Secrets } from '../core/students.js'
 import type { Asker } from './asker.js'
+import type { ClubLog } from './club-log.js'
 import type { Brain } from './brain.js'
 import type { CommandInvocation, CommandResult, Logger, ToolDef } from './host.js'
 import type { Store } from './store.js'
@@ -42,6 +43,8 @@ export interface AppDeps {
   brain: Brain
   /** 社团用的无状态模型调用；没有就不去社团。 */
   asker?: Asker
+  /** 斗地主社的对局记录（club-games.jsonl）。 */
+  clubLog?: ClubLog
   /** 敏感工具的把关：这一轮是不是机器人的主人亲手发起的、请机器人的主人在 DSH 界面上批准。不给就不把关（只在测试里）。 */
   guard?: ToolGuard
   log: Logger
@@ -82,6 +85,7 @@ export function createApp(d: AppDeps) {
       store: { get students() { return d.store.state.students }, save: () => d.store.save() },
       log: d.log,
       rescueKey: async (s, key) => rescueKey(d.store.dir, s.studentId, key),
+      ...(d.clubLog ? { clubLog: d.clubLog } : {}),
     },
     d.config,
     { type: PLUGIN_TYPE, version: d.version },
