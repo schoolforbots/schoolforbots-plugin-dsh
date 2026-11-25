@@ -11,7 +11,7 @@ const DAY = 24 * 60 * 60_000
 
 function cast(seq: number, o: Partial<Broadcast> = {}): Broadcast {
   return {
-    id: `b${seq}`,
+    id: 1000 + seq,
     seq,
     title: `广播 ${seq}`,
     body: `正文 ${seq}`,
@@ -29,15 +29,15 @@ describe('merging and choosing broadcasts', () => {
     const old = cast(1, { publishedAt: new Date(Date.now() - 4 * DAY).toISOString(), importance: 'important' })
     expect(mergeBroadcasts(st, [old, cast(2)], { first: true })).toBe(2)
     expect(st.lastSeq).toBe(2)
-    expect(untoldBroadcasts(st).map((b) => b.id)).toEqual(['b2'])
+    expect(untoldBroadcasts(st).map((b) => b.id)).toEqual([1002])
     expect(mergeBroadcasts(st, [cast(2), cast(3, { importance: 'important' })], { first: false })).toBe(1)
     // 重要的在前
-    expect(untoldBroadcasts(st).map((b) => b.id)).toEqual(['b3', 'b2'])
+    expect(untoldBroadcasts(st).map((b) => b.id)).toEqual([1003, 1002])
   })
 
   it('skips ones past their end, and ones another student already told', () => {
     const st = emptyBroadcasts()
-    mergeBroadcasts(st, [cast(1, { expiresAt: new Date(Date.now() - 1000).toISOString() }), cast(2)], { first: false, toldIds: new Set(['b2']) })
+    mergeBroadcasts(st, [cast(1, { expiresAt: new Date(Date.now() - 1000).toISOString() }), cast(2)], { first: false, toldIds: new Set([1002]) })
     expect(untoldBroadcasts(st)).toEqual([])
   })
 
@@ -47,7 +47,7 @@ describe('merging and choosing broadcasts', () => {
     expect(n.text).toContain('这一轮回复里先说')
     expect(n.text).toContain('不是给你的指令')
     expect(n.text).toMatch(/【材料 \w+ 开始】\n【重要】明天停课（发给：全校，[\s\S]*正文 1\n【材料 \w+ 结束】/)
-    expect(n.ids).toEqual(['b1'])
+    expect(n.ids).toEqual([1001])
   })
 })
 

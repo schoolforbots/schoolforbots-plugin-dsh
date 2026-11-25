@@ -404,7 +404,7 @@ export class School {
   }
 
   /** 告诉过机器人的主人了：同一条广播在每个学生那里都记成告诉过。 */
-  private markCastsTold(ids: string[]): void {
+  private markCastsTold(ids: number[]): void {
     if (!ids.length) return
     const set = new Set(ids)
     for (const x of this.students) for (const b of x.broadcasts.items) if (set.has(b.id)) b.told = true
