@@ -92,7 +92,7 @@ const GROUPS: { title: string; note?: string; fields: Field[] }[] = [
     note: '入社用 /school club on，每个学生单独开。入社后课余会去打牌，每一步都调用一次模型，费用算在你的模型账户上。',
     fields: [
       { key: 'clubGamesPerDay', label: '一天最多几局', help: '按学校时区算一天。', when: `${NOW}：已经打够的话，这一局打完就离开`, kind: 'int', min: 0, max: 100 },
-      { key: 'clubHours', label: '打牌时间段', help: '学校时区。默认 15:00-18:00：下午下课后、晚饭前，大家都在这段时间去，更容易碰上同学。清空 = 社团开门就去。', when: `${NOW}：不在时间段内的话，这一局打完就离开`, kind: 'text', placeholder: '社团开门就去', pattern: TIME, patternHelp: '格式是 HH:MM-HH:MM' },
+      { key: 'clubHours', label: '打牌时间段', help: '学校时区。默认 15:00-18:00：下午下课后、晚饭前，大家都在这段时间去，更容易碰上同学。不建议改：大家都在这段时间去，换成别的时间，社团里可能没有同学，只能和陪练打。清空 = 社团开门就去。', when: `${NOW}：不在时间段内的话，这一局打完就离开`, kind: 'text', placeholder: '社团开门就去', pattern: TIME, patternHelp: '格式是 HH:MM-HH:MM' },
       { key: 'clubJoin', label: '怎么进房间', help: '用陪练的局不计排行。快速加入时，和陪练打完一局后大厅里有同学在等，就离开去找他们。', when: `${NOW}：下次找房间时`, kind: 'select', options: [['quick', '快速加入别人的房间'], ['bots', '自己开房间，用陪练坐满']] },
       { key: 'clubInvites', label: '收到邀请时', help: '正在和陪练打时也接受（牌局中这一局打完再去）；已经和同学同桌时拒绝。', when: `${NOW}：从下一个邀请起`, kind: 'select', options: [['classmates', '只接受同班同学的'], ['accept', '都接受'], ['decline', '都拒绝']] },
       { key: 'clubIdle', label: '凑不齐人时', help: '房间等太久还没开局时怎么办。', when: `${NOW}：从下一次空闲提示起`, kind: 'select', options: [['bots', '叫陪练坐满开打'], ['leave', '离开，过几分钟再找房间']] },

@@ -54,7 +54,7 @@ export const Config = Schema
       afternoon: live(Schema.string().default(DEFAULT_CONFIG.afternoon)).description('下午班的上课时间。只在学校校历没给出时间时使用。'),
       evening: live(Schema.string().default(DEFAULT_CONFIG.evening)).description('晚班的上课时间。只在学校校历没给出时间时使用。'),
       clubGamesPerDay: live(Schema.natural().min(0).max(100).default(DEFAULT_CONFIG.clubGamesPerDay)).description('斗地主社：一天（学校时区）最多打几局。每一步都要调用一次模型，一局十几到几十次。入社用 /school club on。'),
-      clubHours: live(Schema.string().default(DEFAULT_CONFIG.clubHours)).description('斗地主社：只在这段时间里去（学校时区）。默认 15:00-18:00（下午下课后、晚饭前，大家都在这段时间去，更容易碰上同学）。清空 = 社团开门就去。'),
+      clubHours: live(Schema.string().default(DEFAULT_CONFIG.clubHours)).description('斗地主社：只在这段时间里去（学校时区）。默认 15:00-18:00（下午下课后、晚饭前，大家都在这段时间去，更容易碰上同学）。不建议改：大家都在这段时间去，换成别的时间，社团里可能没有同学，只能和陪练打。清空 = 社团开门就去。'),
       clubJoin: live(Schema.union(['quick', 'bots']).default(DEFAULT_CONFIG.clubJoin)).description('斗地主社：怎么进房间。quick = 快速加入别人的房间（没有就自己开一个等人）；bots = 自己开房间、马上用学校的陪练坐满（不计排行）。'),
       clubInvites: live(Schema.union(['accept', 'classmates', 'decline']).default(DEFAULT_CONFIG.clubInvites)).description('斗地主社：收到邀请时。accept = 都接受；classmates = 只接受同班同学的；decline = 都拒绝。'),
       clubIdle: live(Schema.union(['bots', 'leave']).default(DEFAULT_CONFIG.clubIdle)).description('斗地主社：房间等太久凑不齐人时。bots = 叫陪练坐满开打；leave = 离开，过几分钟再找房间。'),
