@@ -16,6 +16,7 @@ import type { ClubAck, ClubLimits, ClubOutgoing, ClubReactions, ClubServerMessag
 
 type LobbyRoom = Extract<ClubServerMessage, { type: 'lobby' }>['rooms'][number]
 import { CLUB } from './club-protocol.js'
+import { newGameStats, type GameDetail, type GameStats } from './club-log.js'
 import { fallbackTurn, gameRecord, parseTurn, turnPrompt, type ClubGameRecord, type TurnAction } from './doudizhu.js'
 import { fence, SILENT } from './prompts.js'
 
@@ -50,7 +51,8 @@ export interface ClubTableDeps {
   onRoom?: (roomId: string, lastSeq: number) => void
   /** 同一个机器人的主人的其他学生的学号：他们开的房间进不去（学校不让同一个主人的学生同桌），换桌时不算。 */
   siblings?: () => number[]
-  onGame: (g: ClubGameRecord) => void
+  /** 一局打完：detail 是这一局里自己这边的情况（写对局记录用）。 */
+  onGame: (g: ClubGameRecord, detail: GameDetail) => void
   /** 打够了、离开了房间：可以断开了。 */
   onDone: () => void
   onNotice?: (text: string) => void
@@ -99,6 +101,8 @@ export class ClubTable {
   private roomGames = 0
   private gameSeats: { studentId: number | null; displayName: string; bot: boolean }[] = []
   private mySeat: number | null = null
+  /** 这一局里自己这边的情况：发牌时开始数，打完交给 onGame。 */
+  private stats: { gameId: number; s: GameStats } | null = null
   private turn: YourTurn | null = null
   private busyTurn: string | null = null
   private lastReactAt = 0
@@ -422,6 +426,7 @@ export class ClubTable {
     const next = (seat: number) => (seat + 1) % 3
     switch (e.kind) {
       case 'dealt': {
+        if (this.stats?.gameId !== e.gameId) this.stats = { gameId: e.gameId, s: newGameStats(this.roomId, replayed ? null : this.now()) }
         this.gameSeats = e.seats
         const seat = e.seats.findIndex((p) => p.studentId === this.me && this.me !== null)
         if (seat >= 0) this.mySeat = seat
@@ -436,6 +441,7 @@ export class ClubTable {
         return
       }
       case 'bid':
+        if (e.seat === this.mySeat) this.countMove(e.auto, e.bid)
         this.setToAct(next(e.seat), replayed)
         return
       case 'redeal':
@@ -451,6 +457,7 @@ export class ClubTable {
         return
       }
       case 'play':
+        if (e.seat === this.mySeat) this.countMove(e.auto)
         this.setToAct(next(e.seat), replayed)
         if (!replayed && (e.move.type === 'bomb' || e.move.type === 'rocket')) {
           const what = e.move.type === 'rocket' ? '王炸' : `炸弹（${e.move.cards.join('')}）`
@@ -458,6 +465,7 @@ export class ClubTable {
         }
         return
       case 'pass':
+        if (e.seat === this.mySeat) this.countMove(e.auto)
         this.setToAct(next(e.seat), replayed)
         if (!replayed && e.seat === this.mySeat && e.auto === null) this.reactAt('这一轮你要不起，选了"不要"。')
         return
@@ -469,10 +477,13 @@ export class ClubTable {
     this.setToAct(null, replayed)
     this.phase = null
     this.roomGames++
+    const stats = this.stats
+    this.stats = null
     this.turn = null
     if (this.mySeat !== null) {
       const record = gameRecord(e.result, this.mySeat, this.gameSeats, this.d.today(), this.now())
-      this.d.onGame(record)
+      const s = stats?.gameId === e.result.gameId ? stats.s : newGameStats(this.roomId, null)
+      this.d.onGame(record, { ...s, seat: this.mySeat, seats: this.gameSeats, endedAt: this.now() })
       if (!replayed && record.outcome !== 'no_landlord') void this.maybeReact(record.won ? '这一局你们赢了。' : '这一局你们输了。')
     }
     void this.afterGame()
@@ -530,6 +541,8 @@ export class ClubTable {
       if (!yt || this.stopped) return
       const deadline = this.deadlineOf(yt, retry)
       if (deadline - this.now() < 1_500) break
+      if (attempt > 0 && this.stats) this.stats.s.retries++
+      if (this.stats) this.stats.s.asks++
       const text = await this.d.ask({ purpose: 'turn', prompt: turnPrompt(yt, this.rules, reason), deadline })
       const now = this.current(key)
       if (!now) return
@@ -553,8 +566,19 @@ export class ClubTable {
     }
     const yt = this.current(key)
     if (!yt || this.stopped) return
+    if (this.stats) this.stats.s.fallbacks++
     const ack = await this.submit(yt, fallbackTurn(yt))
     if (!ack.ok && ack.error.code !== 'stale_turn' && ack.error.code !== 'not_your_turn') this.log(`保底动作也没交上：${ack.error.code}`)
+  }
+
+  /** 自己动了一步（学校的事件）：算进这一局。 */
+  private countMove(auto: string | null, bid?: number): void {
+    const s = this.stats?.s
+    if (!s) return
+    s.turns++
+    if (auto === 'timeout') s.timeouts++
+    else if (auto === 'trustee') s.trustee++
+    if (bid !== undefined) s.bid = bid
   }
 
   private submit(yt: YourTurn, a: TurnAction): Promise<ClubAck> {

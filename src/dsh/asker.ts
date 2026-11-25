@@ -5,6 +5,7 @@
 // 和 docs/subsystems/core.md（ctx.agentDefaultModel）。
 import { service, type DshContext, type Logger } from './host.js'
 import { createModels, modelLabel, type ModelSelection, type Models } from './models.js'
+import type { ClubLog } from './club-log.js'
 import type { TokenUsage, UsageLog } from './usage-log.js'
 
 export { parseModel } from './models.js'
@@ -34,6 +35,8 @@ export interface AskerOptions {
   picker?: Models
   /** 记下每次调用的用量和缓存命中。 */
   usage?: UsageLog
+  /** 每次调用算进这个学生下一行对局记录的用量。 */
+  clubLog?: ClubLog
 }
 
 type AskReq = { system: string; prompt: string; deadline: number; purpose?: 'turn' | 'react' }
@@ -51,7 +54,7 @@ export function createAsker(o: AskerOptions) {
   const picker = o.picker ?? createModels({ ctx: o.ctx, log: o.log })
 
   /** 用 sel 问一次：到时限没答完返回 null，模型出错返回 ModelFailed。 */
-  async function once(rt: LlmRuntime, sel: ModelSelection, req: AskReq, student: string): Promise<string | null | ModelFailed> {
+  async function once(rt: LlmRuntime, sel: ModelSelection, req: AskReq, student: string, fallback = false): Promise<string | null | ModelFailed> {
     const left = req.deadline - Date.now()
     if (left < 1_000) return null
     const ac = new AbortController()
@@ -83,6 +86,7 @@ export function createAsker(o: AskerOptions) {
     } finally {
       clearTimeout(timer)
       if (usage) o.usage?.record({ kind: req.purpose === 'react' ? 'club-react' : 'club-turn', student, model: modelLabel(sel), usage })
+      o.clubLog?.count(student, { model: modelLabel(sel), usage, fallback })
     }
     return text.trim() || null
   }
@@ -104,7 +108,7 @@ export function createAsker(o: AskerOptions) {
       if (!custom || !fallback) return null
       picker.failed(student, sel, what, r.code)
       if (req.deadline - Date.now() < RETRY_MIN_MS) return null
-      const again = await once(rt, fallback, req, student)
+      const again = await once(rt, fallback, req, student, true)
       return again instanceof ModelFailed ? null : again
     },
   }

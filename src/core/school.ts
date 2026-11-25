@@ -12,6 +12,7 @@ import { Attendance, type AttendanceStatus } from './attendance.js'
 import { ClubAttendance, type ClubStatus } from './club-attendance.js'
 import { DEFAULT_CLUB_SETTINGS, type IdlePolicy, type InvitePolicy, type JoinMode } from './club-table.js'
 import type { ClassTool } from './class-tools.js'
+import { clubLogRow, renderLogRow } from './club-log.js'
 import { DEFAULT_CLASS_SETTINGS } from './classroom.js'
 import { addClubGame, addNotice, addSummary, clubDigest, clubGamesOn, markTold, memoryQuery, schoolNote, type MemoryQuery, schoolReport, untold, untoldGames, untoldNotices } from './diary.js'
 import type { SchoolHost } from './host.js'
@@ -38,6 +39,8 @@ import {
 import type { SlotTime } from './timetable.js'
 
 export const MAX_STUDENTS = 3
+/** /school club log 一次最多看几局。 */
+const LOG_MAX = 20
 
 export interface SchoolConfig {
   /** 学校的地址，比如 https://api.schoolforbots.org */
@@ -280,8 +283,11 @@ export class School {
         siblings: () => this.students.filter((x) => x !== s && x.studentId !== null).map((x) => x.studentId!),
         ask: (req) => ask(s.aiId, { system: clubFrame({ persona: s.persona, displayName: s.displayName, className: s.className }), prompt: req.prompt, deadline: req.deadline, purpose: req.purpose }),
         settings: () => ({ join: this.cfg.clubJoin, invites: this.cfg.clubInvites, idle: this.cfg.clubIdle, reactChance: this.cfg.clubReactChance }),
-        onGame: (g) => {
-          if (addClubGame(s.diary, g)) this.save()
+        onGame: (g, detail) => {
+          // 重连以后学校会再发一遍打完的事件：日记里有了就不再记
+          if (!addClubGame(s.diary, g)) return
+          this.save()
+          this.host.clubLog?.append(clubLogRow(s, g, detail))
         },
         log: (m) => this.host.log.info(tag, m),
       }),
@@ -484,6 +490,7 @@ export class School {
       `${cmd} club [on | off]          斗地主社：看战绩，入社 / 退社（入社后课余会去打牌，要一直开着 DSH，也花模型的钱）`,
       `${cmd} club rest | back       斗地主社：今天先不去（还是社员，明天照常）/ 今天接着去`,
       `${cmd} club rank               斗地主社本周的排行榜`,
+      `${cmd} club log [局数]          斗地主社最近几局的记录（默认 5 局）`,
       `${cmd} key-reset               钥匙丢了：换一把（验证码发到报名邮箱）`,
       `${cmd} withdraw 确认            退学（让出座位）`,
       `${cmd} forget                  删掉还没报完名的草稿`,
@@ -891,7 +898,15 @@ export class School {
       if (r.me) lines.push(`它：${line(r.me)}`)
       return { ok: true, text: lines.join('\n') }
     }
-    if (sub) return { ok: false, text: `格式：${cmd} club [on | off | rest | back | rank]` }
+    if (sub === 'log') {
+      if (!this.host.clubLog) return { ok: false, text: '这个宿主不记对局。' }
+      const n = arg ? Number(arg) : 5
+      if (!Number.isInteger(n) || n < 1 || n > LOG_MAX) return { ok: false, text: `局数是 1 到 ${LOG_MAX} 的整数：${cmd} club log 10` }
+      const rows = await this.host.clubLog.recent(s.aiId, n)
+      if (!rows.length) return { ok: true, text: '还没有对局记录（从这个版本起打的才记）。' }
+      return { ok: true, text: [`斗地主社最近 ${rows.length} 局（「${displayNameOf(s)}」）：`, ...rows.map(renderLogRow)].join('\n') }
+    }
+    if (sub) return { ok: false, text: `格式：${cmd} club [on | off | rest | back | rank | log]` }
     const [m, st] = await Promise.all([this.http.clubMembership(key), this.http.clubStats(key)])
     const mismatch = s.club.enabled !== m.member ? `（插件这边的开关是${s.club.enabled ? '开' : '关'}着的）` : ''
     const lines = [`斗地主社：${m.member ? '已入社' : '没有入社'}${mismatch}`]

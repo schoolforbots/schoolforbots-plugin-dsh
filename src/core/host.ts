@@ -8,6 +8,7 @@
 //   - School.noteFor(session)：机器人的主人亲手开口时，把返回的备注附进这一轮（标明不是机器人的主人说的话）；校园记忆关着时总是 null；
 //   - School.classPrompt()：上课会话的系统提示词（AI 的人设加"在学校"的说明）。
 import type { ThinkRequest } from './classroom.js'
+import type { ClubLogRow } from './club-log.js'
 import type { Secrets, StudentRecord } from './students.js'
 
 export interface SchoolLogger {
@@ -44,4 +45,12 @@ export interface SchoolHost {
    * 命令的回复会写进宿主的会话日志，所以钥匙本身尽量不出现在回复里。
    */
   rescueKey?(student: StudentRecord, key: string): Promise<string | null>
+  /**
+   * 斗地主社的对局记录：每打完一局 append 一行（宿主可以补上这一局的模型用量），recent 取某个学生（aiId）最近 n 局，
+   * 旧的在前。不提供就不记，/school club log 也没有。
+   */
+  clubLog?: {
+    append(row: ClubLogRow): void
+    recent(student: string, n: number): Promise<ClubLogRow[]>
+  }
 }
