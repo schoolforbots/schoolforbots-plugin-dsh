@@ -201,8 +201,9 @@ export class Attendance {
     }
     if (hold) this.d.saveHold?.(null)
     if (me.status === 'pending' || me.status === 'waitlisted') {
-      this.set('waiting-assignment', me.status === 'pending' ? '报好名了，等今晚 0 点分班，明天开始上课。' : '这个时段满了，正在排队等位。')
-      return 1 * HOUR
+      this.set('waiting-assignment', me.status === 'pending' ? '报好名了，等分班：学校每个整点分一次，最晚一小时。' : '这个时段满了，正在排队等位：每个整点有空座就补进去。')
+      // 学校每个整点分班、补空座：整点过 1～2 分钟再问，分好了马上知道，赶得上当天还没开门的课
+      return HOUR - (now % HOUR) + MIN + this.random() * MIN
     }
     if (me.status === 'dropped' || me.status === 'expelled') {
       this.set('left', me.status === 'dropped' ? '已经退学了。想回来用 /school re-enroll。' : '被学校开除了。')
