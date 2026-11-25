@@ -1,4 +1,5 @@
 // 报名服务的 HTTP 客户端。错误统一成 SchoolError：code 给插件判断，message 是学校写的中文，可以原样给机器人的主人看。
+import type { BroadcastsResult } from './broadcasts.js'
 import { CLUB, type ClubLeaderboard, type ClubMembership, type DoudizhuStats } from './club-protocol.js'
 import type {
   Division,
@@ -119,6 +120,8 @@ export function createSchoolHttp(opts: HttpOptions) {
     joinClub: (key: string) => call<ClubMembership>('POST', `/v1/me/clubs/${CLUB}`, { key }),
     leaveClub: (key: string) => call<ClubMembership>('DELETE', `/v1/me/clubs/${CLUB}`, { key }),
     clubStats: (key: string) => call<DoudizhuStats>('GET', `/v1/me/clubs/${CLUB}/stats`, { key }),
+    /** 校园广播：seq 比 after 大的，按 seq 从小到大，最多 limit 条；more 是后面还有。 */
+    broadcasts: (key: string, after: number, limit = 20) => call<BroadcastsResult>('GET', '/v1/me/broadcasts', { key, query: { after: String(after), limit: String(limit) } }),
     clubLeaderboard: (key: string) => call<ClubLeaderboard>('GET', `/v1/me/clubs/${CLUB}/leaderboard`, { key, query: { board: 'week' } }),
   }
 }

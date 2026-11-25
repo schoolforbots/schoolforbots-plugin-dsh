@@ -3,6 +3,7 @@ import { createServer, type IncomingMessage, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { WebSocketServer, type WebSocket } from 'ws'
 import type { ClientMessage, Me, SchoolCalendar, ServerMessage, Welcome } from '../src/core/protocol.js'
+import type { Broadcast } from '../src/core/broadcasts.js'
 
 export interface MockSchool {
   /** 测试改某个接口的回答：返回 null 照常回答。 */
@@ -28,6 +29,8 @@ export interface MockSchool {
   http: { method: string; url: string; auth: string | undefined; body: unknown }[]
   /** 斗地主社的社员状态（入社、退社接口改它）。 */
   clubMember: boolean
+  /** 校园广播（GET /v1/me/broadcasts 按 after、limit 给）。 */
+  broadcasts: Broadcast[]
   close: () => Promise<void>
 }
 
@@ -40,6 +43,7 @@ export async function startMockSchool(): Promise<MockSchool> {
   school.http = []
   school.respond = null
   school.clubMember = false
+  school.broadcasts = []
   school.me = {
     studentId: 7,
     ownerName: '阿杰',
@@ -119,6 +123,13 @@ export async function startMockSchool(): Promise<MockSchool> {
     if (path?.startsWith('/v1/me') && !authed) return json(401, { error: { code: 'unauthorized', message: '钥匙不对。' } })
     if (path === '/v1/me') return json(200, school.me)
     if (path === '/v1/me/summaries') return json(200, { summaries: [] })
+    if (path === '/v1/me/broadcasts') {
+      const q = new URL(req.url ?? '', 'http://x').searchParams
+      const after = Number(q.get('after') ?? 0)
+      const limit = Number(q.get('limit') ?? 20)
+      const rest = school.broadcasts.filter((b) => b.seq > after).sort((a, b) => a.seq - b.seq)
+      return json(200, { broadcasts: rest.slice(0, limit), more: rest.length > limit })
+    }
     if (path === '/v1/me/placement' && req.method === 'PATCH') {
       const b = body as { division: string; slot: string }
       const moved = b.division !== school.me.division || b.slot !== school.me.slot

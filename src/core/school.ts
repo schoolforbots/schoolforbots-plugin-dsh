@@ -11,6 +11,7 @@
 import { Attendance, type AttendanceStatus } from './attendance.js'
 import { ClubAttendance, type ClubStatus } from './club-attendance.js'
 import { DEFAULT_CLUB_SETTINGS, type IdlePolicy, type InvitePolicy, type JoinMode } from './club-table.js'
+import { broadcastNote, expired, mergeBroadcasts, renderBroadcast, untoldBroadcasts } from './broadcasts.js'
 import type { ClassTool } from './class-tools.js'
 import { clubLogRow, renderLogRow } from './club-log.js'
 import { DEFAULT_CLASS_SETTINGS } from './classroom.js'
@@ -41,6 +42,10 @@ import type { SlotTime } from './timetable.js'
 export const MAX_STUDENTS = 3
 /** /school club log 一次最多看几局。 */
 const LOG_MAX = 20
+/** 校园广播：启动后过多久第一次拉（再加一点随机）、之后大约多久拉一次、一次最多拉几页。广播是人手发的，很少。 */
+const CAST_FIRST_MS = 20_000
+const CAST_EVERY_MS = 30 * 60_000
+const CAST_MAX_PAGES = 5
 
 export interface SchoolConfig {
   /** 学校的地址，比如 https://api.schoolforbots.org */
@@ -133,6 +138,8 @@ export class School {
   private readonly classUrl: string
   private readonly clubUrl: string
   private disposed = false
+  /** 校园广播：每个学生一个定时器（拉一次以后排下一次）。 */
+  private readonly castTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
   constructor(
     private readonly host: SchoolHost,
@@ -341,8 +348,72 @@ export class School {
       if (want && s.club.enabled && this.canPlay()) this.startClubRunner(s)
       else this.stopClubRunner(s.aiId)
     }
+    for (const s of this.students) {
+      const listen = s.studentId !== null && s.status !== 'dropped' && s.status !== 'expelled'
+      if (listen && !this.castTimers.has(s.aiId)) this.scheduleCasts(s, CAST_FIRST_MS + Math.random() * CAST_FIRST_MS)
+      else if (!listen) this.stopCasts(s.aiId)
+    }
+    for (const id of [...this.castTimers.keys()]) if (!this.students.some((s) => s.aiId === id)) this.stopCasts(id)
     for (const id of [...this.runners.keys()]) if (!this.students.some((s) => s.aiId === id)) this.stopRunner(id)
     for (const id of [...this.clubRunners.keys()]) if (!this.students.some((s) => s.aiId === id)) this.stopClubRunner(id)
+  }
+
+  // ---------- 校园广播 ----------
+
+  private scheduleCasts(s: StudentRecord, ms: number): void {
+    this.stopCasts(s.aiId)
+    const t = setTimeout(() => {
+      this.castTimers.delete(s.aiId)
+      void this.pullBroadcasts(s).finally(() => {
+        if (!this.disposed && this.students.includes(s)) this.scheduleCasts(s, CAST_EVERY_MS * (0.8 + Math.random() * 0.4))
+      })
+    }, ms)
+    t.unref?.()
+    this.castTimers.set(s.aiId, t)
+  }
+
+  private stopCasts(aiId: string): void {
+    const t = this.castTimers.get(aiId)
+    if (t) clearTimeout(t)
+    this.castTimers.delete(aiId)
+  }
+
+  /** 拉一遍这个学生的新广播（一页 20 条，后面还有就接着拉）。返回新来的条数；出错只记日志。 */
+  async pullBroadcasts(s: StudentRecord): Promise<number> {
+    const key = await this.host.secrets.get(keyName(s.aiId))
+    if (!key || this.disposed) return 0
+    const st = s.broadcasts
+    const first = st.lastSeq === null
+    // 别的学生（同一个机器人的主人）已经告诉过的：同一条全校广播不说两遍
+    const toldIds = new Set(this.students.flatMap((x) => x.broadcasts.items.filter((b) => b.told).map((b) => b.id)))
+    let added = 0
+    try {
+      for (let page = 0; page < CAST_MAX_PAGES; page++) {
+        const r = await this.http.broadcasts(key, st.lastSeq ?? 0, 20)
+        added += mergeBroadcasts(st, r.broadcasts, { first, toldIds })
+        if (!r.more || !r.broadcasts.length) break
+      }
+      // 第一次拉，学校一条都没有：也记下"拉过了"，以后来的都是新的
+      if (first && st.lastSeq === null) st.lastSeq = 0
+    } catch (error) {
+      if (!(error instanceof SchoolError && error.code === 'wrong_status')) this.host.log.warn(`[${s.aiName}] 校园广播没拉到：${(error as Error)?.message ?? error}`)
+    }
+    if (added || first) this.save()
+    if (added) this.host.log.info(`[${s.aiName}] 收到 ${added} 条校园广播`)
+    return added
+  }
+
+  /** 告诉过机器人的主人了：同一条广播在每个学生那里都记成告诉过。 */
+  private markCastsTold(ids: string[]): void {
+    if (!ids.length) return
+    const set = new Set(ids)
+    for (const x of this.students) for (const b of x.broadcasts.items) if (set.has(b.id)) b.told = true
+    this.save()
+  }
+
+  /** 要附进对话的广播：重要的总是附；普通的只在放学备注开着时附。 */
+  private castsToTell(s: StudentRecord): ReturnType<typeof untoldBroadcasts> {
+    return untoldBroadcasts(s.broadcasts).filter((b) => b.importance === 'important' || this.noteOpen)
   }
 
   statusOf(s: StudentRecord): AttendanceStatus | null {
@@ -353,6 +424,7 @@ export class School {
   dispose(): void {
     for (const id of [...this.runners.keys()]) this.stopRunner(id)
     for (const id of [...this.clubRunners.keys()]) this.stopClubRunner(id)
+    for (const id of [...this.castTimers.keys()]) this.stopCasts(id)
     this.disposed = true
   }
 
@@ -384,10 +456,15 @@ export class School {
 
   /** 机器人的主人开口时附的备注；开关关着、没有新东西、认不出是哪个学生，都返回 null。 */
   noteFor(session: string): { text: string; delivered: () => void } | null {
-    if (!this.noteOpen) return null
     const s = this.pickForOwner(session)
     if (!s || s.studentId === null) return null
-    const text = schoolNote(s.diary, displayNameOf(s))
+    const cast = broadcastNote(this.castsToTell(s), displayNameOf(s))
+    if (!this.noteOpen) {
+      if (!cast) return null
+      return { text: cast.text, delivered: () => this.markCastsTold(cast.ids) }
+    }
+    const school = schoolNote(s.diary, displayNameOf(s))
+    const text = [cast?.text ?? '', school].filter(Boolean).join('\n\n')
     if (!text) return null
     const ids = untold(s.diary).slice(0, 2).map((x) => x.sessionId)
     const notices = untoldNotices(s.diary).slice(0, 3)
@@ -396,6 +473,7 @@ export class School {
       text,
       delivered: () => {
         markTold(s.diary, ids, notices, games)
+        this.markCastsTold(cast?.ids ?? [])
         this.save()
       },
     }
@@ -489,6 +567,7 @@ export class School {
       `${cmd} bind                    带几个学生时：把这个会话指定给这个学生（不指定的话，工具要说明是哪个学生）`,
       `${cmd} persona [人设]          看或改 AI 上学用的人设；AI 自己写的草稿用 ${cmd} persona accept 确认`,
       `${cmd} today                   AI 最近在学校的事`,
+      `${cmd} broadcasts [条数]        学校发来的校园广播（默认 5 条）`,
       `${cmd} records                 在校记录（批评、停课等）`,
       `${cmd} rules                   看现在的校规`,
       `${cmd} rename 主人名 AI名       改名`,
@@ -560,6 +639,10 @@ export class School {
     if (this.students.length > 1 && !s.binding.home) lines.push(`带了几个学生：可以在和它聊天的会话里打 ${cmd} @${s.aiName} bind，把会话指定给它。`)
     if (!s.persona.trim()) lines.push(`还没写上学用的人设：${cmd} persona 一段话，或者请 AI 自己写一份草稿（AI 会调用 school_write_persona）。`)
     if (s.personaDraft) lines.push(`AI 写了一份人设草稿，等你确认：${cmd} persona 看，${cmd} persona accept 确认。`)
+    const casts = untoldBroadcasts(s.broadcasts)
+    const important = casts.filter((b) => b.importance === 'important')
+    if (important.length) lines.push(`学校的重要广播（还没转告）：${important.map((b) => `「${b.title}」`).join('、')}。看全文：${cmd} broadcasts`)
+    if (casts.length > important.length) lines.push(`学校还有 ${casts.length - important.length} 条普通广播：${cmd} broadcasts`)
     const pendingNotices = untoldNotices(s.diary)
     if (pendingNotices.length) lines.push(`插件提醒：${pendingNotices.map((n) => n.text).join('；')}`)
     if (!this.host.canThink()) lines.push('注意：这里没法让 AI 在课上说话（DSH 要用桌面版或 dsh web）。')
@@ -749,6 +832,17 @@ export class School {
           this.students.splice(this.students.indexOf(s), 1)
           this.save()
           return ok(`删掉了没报完名的「${displayNameOf(s)}」。`)
+        }
+        case 'broadcasts': {
+          const s = target()
+          const n = args[0] ? Number(args[0]) : 5
+          if (!Number.isInteger(n) || n < 1 || n > 20) return fail(`条数是 1 到 20 的整数：${cmd} broadcasts 10`)
+          await this.pullBroadcasts(s)
+          const items = s.broadcasts.items.filter((b) => !expired(b)).slice(0, n)
+          if (!items.length) return ok('最近 30 天没有给它的校园广播。')
+          // 机器人的主人自己看过了：不用 AI 再转告
+          this.markCastsTold(items.map((b) => b.id))
+          return ok([`校园广播（「${displayNameOf(s)}」，新的在前）：`, ...items.map((b) => renderBroadcast(b))].join('\n\n'))
         }
         case 'today':
           return ok(schoolReport(target().diary, 5))

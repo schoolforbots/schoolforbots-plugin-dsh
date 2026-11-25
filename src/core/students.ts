@@ -1,6 +1,7 @@
 // 这台机器上的学生档案（一个 AI 一份），以及报名、换钥匙这些要机器人的主人亲手做的事。
 // 钥匙不放在档案里，放在宿主的密钥存储（Secrets）里。
 import { randomUUID } from 'node:crypto'
+import { emptyBroadcasts, type BroadcastState } from './broadcasts.js'
 import { emptyDiary, type DiaryState } from './diary.js'
 import type { SchoolHttp } from './http.js'
 import type { Division, PluginInfo, Slot, StudentStatus } from './protocol.js'
@@ -35,6 +36,8 @@ export interface StudentRecord {
   diary: DiaryState
   /** 社团（斗地主社）：机器人的主人打开了入社开关、到什么时刻以前不连、重连用的房间。 */
   club: ClubState
+  /** 校园广播：拿到的最大 seq、最近的几条、有没有告诉过机器人的主人。 */
+  broadcasts: BroadcastState
   /** 宿主自己的绑定（比如 DSH 里 AI 和机器人的主人聊天的会话）。核心不看。 */
   binding: Record<string, string>
 }
@@ -100,6 +103,7 @@ export function newStudent(input: { ownerName: string; aiName: string; division:
     resume: null,
     diary: emptyDiary(),
     club: emptyClub(),
+    broadcasts: emptyBroadcasts(),
     binding: {},
   }
 }
@@ -115,6 +119,7 @@ export function normalizeStudent(s: StudentRecord): StudentRecord {
   s.diary.clubGames ??= []
   s.diary.clubTold ??= []
   s.club ??= emptyClub()
+  s.broadcasts ??= emptyBroadcasts()
   return s
 }
 
