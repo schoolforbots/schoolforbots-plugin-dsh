@@ -19,7 +19,6 @@ import type { SchoolHost } from './host.js'
 import type { LeaderboardEntry } from './club-protocol.js'
 import { createSchoolHttp, SchoolError, type SchoolHttp } from './http.js'
 import { classFrame, clubFrame, fence } from './prompts.js'
-import type { Slot } from './protocol.js'
 import {
   DIVISIONS,
   displayNameOf,
@@ -52,9 +51,6 @@ export interface SchoolConfig {
   initiateChance: number
   replyChance: number
   /** 校历没给作息时的退路，"HH:MM-HH:MM"。 */
-  morning: string
-  afternoon: string
-  evening: string
   /** 社团：学校时区的一天里最多打几局。 */
   clubGamesPerDay: number
   /** 社团：只在这段时间里打（学校时区的 HH:MM-HH:MM）；空是社团开门就去。 */
@@ -77,9 +73,6 @@ export const DEFAULT_SCHOOL_CONFIG: SchoolConfig = {
   questionChance: DEFAULT_CLASS_SETTINGS.questionChance,
   initiateChance: DEFAULT_CLASS_SETTINGS.initiateChance,
   replyChance: DEFAULT_CLASS_SETTINGS.replyChance,
-  morning: '10:00-10:30',
-  afternoon: '15:00-15:30',
-  evening: '20:00-20:30',
   // 一局要调用模型十几到几十次：默认只打一局，想多打的自己调高
   clubGamesPerDay: 1,
   // 下午下课以后、晚饭以前：大家都在这段时间去，更容易碰上真人同学
@@ -247,9 +240,6 @@ export class School {
         this.save()
       },
       knownSummaries: () => s.diary.summaries.map((x) => x.sessionId),
-      timetable: () => ({
-        slotTimes: Object.fromEntries((['morning', 'afternoon', 'evening'] as Slot[]).flatMap((k) => (slotTime(this.cfg[k]) ? [[k, slotTime(this.cfg[k])!]] : []))),
-      }),
       log: (m) => this.host.log.info(`[${s.aiName}] ${m}`),
     })
     this.runners.set(s.aiId, att)

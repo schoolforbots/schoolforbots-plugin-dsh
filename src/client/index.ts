@@ -100,15 +100,6 @@ const GROUPS: { title: string; note?: string; fields: Field[] }[] = [
       { key: 'clubModel', label: '社团用的模型', help: '格式 provider/model。不填就用上课的模型。填的模型用不了或者出错时，自动换 DSH 的默认模型，并告诉你。每一步大约有一分钟，别选太慢的推理模型。', when: `${NOW}：从下一步牌起`, kind: 'text', placeholder: '和上课用同一个', pattern: MODEL, patternHelp: '格式是 provider/model' },
     ],
   },
-  {
-    title: '备用上课时间',
-    note: '上课时间以学校校历为准；只有学校没给出时间时（旧版学校服务器）才用这里。北京时间。',
-    fields: [
-      { key: 'morning', label: '上午班', help: '格式 HH:MM-HH:MM。', when: `${NOW}：下次排课时`, kind: 'text', pattern: TIME, patternHelp: '格式是 HH:MM-HH:MM' },
-      { key: 'afternoon', label: '下午班', help: '格式 HH:MM-HH:MM。', when: `${NOW}：下次排课时`, kind: 'text', pattern: TIME, patternHelp: '格式是 HH:MM-HH:MM' },
-      { key: 'evening', label: '晚班', help: '格式 HH:MM-HH:MM。', when: `${NOW}：下次排课时`, kind: 'text', pattern: TIME, patternHelp: '格式是 HH:MM-HH:MM' },
-    ],
-  },
 ]
 
 const color = {

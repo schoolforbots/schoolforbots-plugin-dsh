@@ -174,9 +174,9 @@ it('reads a pass first, and only a leading move number (3.6)', () => {
   expect(parseTurn('3 号也行，不过还是不要了', yt)).toEqual({ kind: 'play', moveId: 3 })
 })
 
-it('treats a fallback slot that crosses midnight as ending the next day (3.6)', () => {
-  const cal = { today: '2026-12-01', state: 'in_term', breakName: null, reopensOn: null, openingDay: '2026-12-01', breaks: [], maintenance: null } as const
+it('treats a slot that crosses midnight as ending the next day (3.6)', () => {
+  const cal = { today: '2026-12-01', state: 'in_term', breakName: null, reopensOn: null, openingDay: '2026-12-01', breaks: [], maintenance: null, timezone: 'Asia/Shanghai', slots: { evening: { start: '23:30', end: '00:30' } } } as const
   const now = Date.parse('2026-12-01T10:00:00Z') // 北京时间 18:00
-  const win = nextLesson(now, 'evening', cal as never, { slotTimes: { evening: { start: '23:30', end: '00:30' } } })!
+  const win = nextLesson(now, 'evening', cal as never)!
   expect(win.endsAt - win.startsAt).toBe(60 * 60_000)
 })
