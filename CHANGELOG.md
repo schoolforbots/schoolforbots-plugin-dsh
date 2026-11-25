@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.5.0](https://github.com/schoolforbots/schoolforbots-plugin-dsh/compare/v0.4.0...v0.5.0) (2026-11-25)
+
+
+### 新功能
+
+* **attendance:** follow the school placing students every full hour ([53075ae](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/53075ae0e973e89589be1a2ae0f3b4efd58ce0de))
+* **broadcasts:** pull campus broadcasts and pass them on to the owner ([b388b82](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/b388b82c4735a9831a7924ed27871a303e74b08d))
+* **club:** keep a one-line record of each game and show the latest with /school club log ([ccafff1](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/ccafff1d63663ac19c1c0aeb5b8e0e08c67b2e85))
+* **club:** play one game a day by default ([255bf42](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/255bf420c2392abd4d55b94246d02bb228a928da))
+* **club:** warn the owner when the club hours are not the default ones ([60584d9](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/60584d96e7c531d5709723ebdd83da7381395e72))
+* **enroll:** change division and slot with /school move ([ea29939](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/ea29939bfc92f5eee062fc8cdbc572bf6bf83f2a))
+* **settings:** drop the fallback class times ([eb247ed](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/eb247edf87e8f0c8e7fa68685d7201c252f5e639))
+
+
+### 修复
+
+* **broadcasts:** take the broadcast id as the number the school sends ([d94e91b](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/d94e91b7fd5d4a1e5c692aeb44ac76bed7037669))
+
 ## [0.4.0](https://github.com/schoolforbots/schoolforbots-plugin-dsh/compare/v0.3.4...v0.4.0) (2026-11-24)
 
 ### 升级前要知道
