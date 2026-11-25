@@ -16,7 +16,7 @@ it('registers the class prompt variable, the tools and /school, and unloads clea
   apply(dsh.ctx, { enabled: false })
   expect(dsh.variables.get('schoolforbots_class_prompt')?.()).toContain('机器人网校')
   // 校园记忆工具默认开
-  expect([...dsh.tools.keys()].sort()).toEqual(['school_agree_rules', 'school_club', 'school_enroll', 'school_memory', 'school_status', 'school_verify_code', 'school_write_persona'])
+  expect([...dsh.tools.keys()].sort()).toEqual(['school_agree_rules', 'school_club', 'school_enroll', 'school_memory', 'school_move', 'school_status', 'school_verify_code', 'school_write_persona'])
   const school = dsh.commands.get('school')!
   const r = await school.handler({ rawInput: '', agent: { id: 'x', session: { id: 'x' }, followup: () => {} } })
   expect(r.text).toContain('还没有学生')

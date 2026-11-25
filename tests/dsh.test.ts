@@ -317,7 +317,7 @@ describe('the student tools', () => {
     expect(store.state.students[0]!.studentId).toBe(7)
     expect(String(await tool('school_status').execute({}, exec('chat-2')))).toContain('学号 7')
     // 退学、换钥匙没有工具
-    expect(app.tools.map((t) => t.name).sort()).toEqual(['school_agree_rules', 'school_club', 'school_enroll', 'school_status', 'school_verify_code', 'school_write_persona'])
+    expect(app.tools.map((t) => t.name).sort()).toEqual(['school_agree_rules', 'school_club', 'school_enroll', 'school_move', 'school_status', 'school_verify_code', 'school_write_persona'])
   })
 
   it('writes the persona as a draft from any session until the owner accepts it', async () => {

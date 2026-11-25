@@ -19,6 +19,7 @@ import type { SchoolHost } from './host.js'
 import type { LeaderboardEntry } from './club-protocol.js'
 import { createSchoolHttp, SchoolError, type SchoolHttp } from './http.js'
 import { classFrame, clubFrame, fence } from './prompts.js'
+import type { Division, Slot } from './protocol.js'
 import {
   DIVISIONS,
   displayNameOf,
@@ -109,6 +110,8 @@ export type AgentAction =
   | { verb: 'agree'; version: string }
   | { verb: 'code'; code: string }
   | { verb: 'club'; sub?: 'on' | 'off' | 'rest' | 'back' }
+  /** 换学部、时段（不换的不填）。AI 的工具要机器人的主人在 DSH 里批准，批准就算确认。 */
+  | { verb: 'move'; division?: string; slot?: string }
 
 export function slotTime(s: string): SlotTime | undefined {
   const m = /^\s*(\d{1,2}:\d{2})\s*[-~～—]\s*(\d{1,2}:\d{2})\s*$/.exec(s)
@@ -438,12 +441,24 @@ export class School {
       : action.verb === 'enroll' ? ['enroll', ...action.fields]
       : action.verb === 'agree' ? ['agree', action.version]
       : action.verb === 'code' ? ['code', action.code]
+      : action.verb === 'move' ? ['move', ...(action.division ? [action.division] : []), ...(action.slot ? [action.slot] : []), '确认']
       : action.sub ? ['club', action.sub] : ['club']
     // 只有开头的 @ 会被当成"指定学生"，所以不许以 @ 开头；邮箱中间的 @ 没关系
     if (tokens.some((t) => !t || /\s/u.test(t) || /^[@＠]/u.test(t))) return wrap(false, '参数不能是空的，不能带空白，也不能以 @ 开头。')
     const raw = `${name ? `@${name} ` : ''}${tokens.join(' ')}`
     const r = await this.ownerCommand(raw, { home: session, command: '/school', fromAgent: true })
     return wrap(r.ok, r.text)
+  }
+
+  /** 换学部、时段前要提醒的：正在上课的话，这节课会马上断开。没有返回 null。 */
+  private moveWarning(s: StudentRecord): string | null {
+    return this.runners.get(s.aiId)?.status.phase === 'in-class' ? '它正在上课：一换，这节课马上断开（和中途退学一样，不算违纪）。' : null
+  }
+
+  /** 给换学部、时段的审批文案用：要提醒的话（正在上课）；找不到学生或者没什么要提醒的返回 null。 */
+  moveNotice(session: string, student?: string): string | null {
+    const s = this.pickForOwner(session, student?.trim() || undefined)
+    return s ? this.moveWarning(s) : null
   }
 
   /** 正在报名的学生的邮箱（打码），给同意校规的审批文案用；找不到返回 null。 */
@@ -477,6 +492,7 @@ export class School {
       `${cmd} records                 在校记录（批评、停课等）`,
       `${cmd} rules                   看现在的校规`,
       `${cmd} rename 主人名 AI名       改名`,
+      `${cmd} move 学部 时段           换学部、时段（只换一项就只填那一项；一天一次，会马上离开原来的班）`,
       `${cmd} on | off                让 AI 去上学 / 先不去`,
       `${cmd} club [on | off]          斗地主社：看战绩，入社 / 退社（入社后课余会去打牌，要一直开着 DSH，也花模型的钱）`,
       `${cmd} club rest | back       斗地主社：今天先不去（还是社员，明天照常）/ 今天接着去`,
@@ -570,6 +586,8 @@ export class School {
       if (error.code === 'school_rules_outdated') return `${error.message}（现在的版本是 ${String(extra.currentVersion)}，用 ${cmd} rules 看，再 ${cmd} agree ${String(extra.currentVersion)}）`
       if (error.code === 'rename_cooldown') return `${error.message}（${String(extra.retryAfter)} 以后可以再改）`
       if (error.code === 'still_suspended') return `${error.message}（停课到 ${String(extra.until)}）`
+      if (error.code === 'move_cooldown') return `${error.message}（${String(extra.retryAfter)} 起可以再换）`
+      if (error.code === 'slot_full') return `${error.message}（没有换，还在原来的班）`
       return error.message
     }
     return (error as Error)?.message ?? String(error)
@@ -784,6 +802,56 @@ export class School {
           s.status = 'dropped'
           this.save()
           return ok(`已经退学了。想回来用 ${cmd} re-enroll 校规版本。`)
+        }
+        case 'move': {
+          const s = target()
+          const sure = args.at(-1) === '确认'
+          const picks = sure ? args.slice(0, -1) : args
+          let division: Division | null = null
+          let slot: Slot | null = null
+          for (const p of picks) {
+            const dv = parseDivision(p)
+            const sl = parseSlot(p)
+            if (dv && !division) division = dv
+            else if (sl && !slot) slot = sl
+            else return fail(`看不懂「${[...p].slice(0, 20).join('')}」。格式：${this.cmdFor(s, cmd)} move 学部 时段（只换一项就只填那一项），学部是 小学部 / 初中部 / 高中部，时段是 上午班 / 下午班 / 晚班。`)
+          }
+          if (!division && !slot) return fail(`换到哪：${this.cmdFor(s, cmd)} move 学部 时段（只换一项就只填那一项）。现在是 ${DIVISIONS[s.division]} · ${SLOTS[s.slot]}。`)
+          if (s.studentId === null) return fail(`还没报完名：报名还没完成时重新 ${cmd} enroll 就能改学部和时段。`)
+          const to = { division: division ?? s.division, slot: slot ?? s.slot }
+          const where = `${DIVISIONS[to.division]} · ${SLOTS[to.slot]}`
+          if (to.division === s.division && to.slot === s.slot) return ok(`本来就是 ${where}，不用换。`)
+          if (!sure) {
+            const lines = [
+              `要把「${displayNameOf(s)}」从 ${DIVISIONS[s.division]} · ${SLOTS[s.slot]} 换到 ${where}：`,
+              `- 马上离开现在的班${s.className ? `（${s.className}）` : ''}；学号、上过的课、在校记录、社团资格都跟着走。`,
+              '- 学校每个整点分一次班，最晚一小时分进新班。新时段今天还没开门就今天上课，开过门就从下一个上学日开始。',
+              '- 等分班的这段时间去不了斗地主社。',
+              `- 一天只能换一次。${to.slot !== s.slot ? '换到别的时段，那个时段满了或者有人在排队就换不了，还留在原来的班。' : ''}`,
+            ]
+            const inClass = this.moveWarning(s)
+            if (inClass) lines.push(`- ${inClass}`)
+            lines.push(`确定的话打 ${this.cmdFor(s, cmd)} move ${DIVISIONS[to.division]} ${SLOTS[to.slot]} 确认`)
+            return ok(lines.join('\n'))
+          }
+          const key = await keyOf(s)
+          if (!key) return fail('还没有钥匙。')
+          const r = await this.http.move(key, to.division, to.slot)
+          if (!r.moved) return ok(`本来就是 ${where}，没有换。`)
+          s.division = r.division
+          s.slot = r.slot
+          s.status = r.status
+          s.className = null
+          this.save()
+          this.sync()
+          // 马上按"等分班"重新排：整点过一两分钟去问分好了没有
+          this.runners.get(s.aiId)?.poke()
+          this.pokeClub(s)
+          return ok(
+            r.status === 'waitlisted'
+              ? `换好了：现在是 ${where}，还在排队等座位，位置没变。`
+              : `换好了：现在是 ${where}，已经离开原来的班。学校每个整点分一次班，最晚一小时分进新班；分好以前去不了斗地主社。一天只能换一次。`,
+          )
         }
         case 're-enroll': {
           const s = target()

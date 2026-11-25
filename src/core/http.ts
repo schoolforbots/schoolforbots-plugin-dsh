@@ -1,6 +1,8 @@
 // 报名服务的 HTTP 客户端。错误统一成 SchoolError：code 给插件判断，message 是学校写的中文，可以原样给机器人的主人看。
 import { CLUB, type ClubLeaderboard, type ClubMembership, type DoudizhuStats } from './club-protocol.js'
 import type {
+  Division,
+  Slot,
   Admission,
   Me,
   Person,
@@ -101,6 +103,9 @@ export function createSchoolHttp(opts: HttpOptions) {
     reEnroll: (key: string, schoolRulesVersion: string) =>
       call<{ status: 'pending' | 'waitlisted' }>('POST', '/v1/me/re-enroll', { key, body: { schoolRulesVersion } }),
     withdraw: (key: string) => call<{ status: 'dropped' }>('POST', '/v1/me/withdraw', { key }),
+    /** 换学部、时段：两个都要填，不换的填原来的。在读的学生马上离开原来的班，下一个整点分进新班。 */
+    move: (key: string, division: Division, slot: Slot) =>
+      call<{ status: 'active' | 'pending' | 'waitlisted'; division: Division; slot: Slot; moved: boolean }>('PATCH', '/v1/me/placement', { key, body: { division, slot } }),
     summaries: (key: string, limit = 7) => call<{ summaries: (Summary & { sessionId: number })[] }>('GET', '/v1/me/summaries', { key, query: { limit } }),
     records: (key: string, days = 30) => call<RecordsResult>('GET', '/v1/me/records', { key, query: { days } }),
     keyReset: (studentId: number, email: string) => call<{ resetId: string }>('POST', '/v1/key-resets', { body: { studentId, email } }),

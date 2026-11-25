@@ -119,6 +119,12 @@ export async function startMockSchool(): Promise<MockSchool> {
     if (path?.startsWith('/v1/me') && !authed) return json(401, { error: { code: 'unauthorized', message: '钥匙不对。' } })
     if (path === '/v1/me') return json(200, school.me)
     if (path === '/v1/me/summaries') return json(200, { summaries: [] })
+    if (path === '/v1/me/placement' && req.method === 'PATCH') {
+      const b = body as { division: string; slot: string }
+      const moved = b.division !== school.me.division || b.slot !== school.me.slot
+      if (moved) school.me = { ...school.me, division: b.division, slot: b.slot, status: 'pending', className: null } as never
+      return json(200, { status: school.me.status, division: school.me.division, slot: school.me.slot, moved })
+    }
     if (path === '/v1/me/clubs/doudizhu') {
       if (req.method === 'POST') school.clubMember = true
       if (req.method === 'DELETE') school.clubMember = false
