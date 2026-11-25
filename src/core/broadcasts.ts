@@ -8,7 +8,8 @@
 import { fence } from './prompts.js'
 
 export interface Broadcast {
-  id: string
+  /** 学校给的编号（整数）。几个学生收到同一条广播时 id 一样。 */
+  id: number
   seq: number
   title: string
   body: string
@@ -57,7 +58,7 @@ export function expired(b: Broadcast, now = Date.now()): boolean {
  * 把拉到的广播并进来（已经有的跳过）。first：这是第一次拉，更早的旧广播记下来不说。
  * toldIds：别的学生已经告诉过机器人的主人的广播（同一条全校广播不说两遍）。返回新来的条数。
  */
-export function mergeBroadcasts(st: BroadcastState, list: Broadcast[], o: { first: boolean; toldIds?: Set<string>; now?: number }): number {
+export function mergeBroadcasts(st: BroadcastState, list: Broadcast[], o: { first: boolean; toldIds?: Set<number>; now?: number }): number {
   const now = o.now ?? Date.now()
   const have = new Set(st.items.map((b) => b.id))
   let added = 0
@@ -91,7 +92,7 @@ export function renderBroadcast(b: Broadcast): string {
 }
 
 /** 附进机器人的主人这一轮的备注：请 AI 转告。没有要附的返回 null。 */
-export function broadcastNote(items: BroadcastItem[], name?: string | null): { text: string; ids: string[] } | null {
+export function broadcastNote(items: BroadcastItem[], name?: string | null): { text: string; ids: number[] } | null {
   const picked = items.slice(0, NOTE_MAX)
   if (!picked.length) return null
   const important = picked.some((b) => b.importance === 'important')
