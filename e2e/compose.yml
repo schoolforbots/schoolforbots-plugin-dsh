@@ -101,6 +101,18 @@ services:
       timeout: 5s
       retries: 40
 
+  # 开测前发两条全校广播（一条重要、一条普通）：报名服务起来时已经建好了表
+  broadcasts:
+    image: postgres:17-alpine
+    volumes:
+      - ./school/broadcasts.sql:/broadcasts.sql:ro
+    environment:
+      PGPASSWORD: school
+    command: ['psql', '-h', 'postgres', '-U', 'school', '-d', 'school', '-v', 'ON_ERROR_STOP=1', '-f', '/broadcasts.sql']
+    depends_on:
+      registration:
+        condition: service_healthy
+
   # 学校的统一地址 http://school：按路径分给三个服务
   school:
     image: caddy:2-alpine
@@ -129,6 +141,8 @@ services:
         condition: service_healthy
       club:
         condition: service_healthy
+      broadcasts:
+        condition: service_completed_successfully
 
 volumes:
   school-config:

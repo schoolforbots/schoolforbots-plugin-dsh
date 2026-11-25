@@ -3,7 +3,8 @@
 // 1. 等学校就绪；按模式写一份 profile 覆盖层（假模型、插件指向本地学校），启动 `dsh web`，用它打印的 token 换 cookie。
 // 2. 建一个会话，以机器人的主人的身份说话（DSH 的 session/prompt，来源是 user）：报名 → 同意校规 → 验证码 → 入社。
 //    假模型据此调用插件的工具；审批由辅助插件自动"允许"；验证码从 mailpit 取。
-// 3. 等插件的档案里出现打完的一局、上完的一节课，再问一句"今天在学校怎么样"。
+// 3. 校园广播：报完名以后插件自己拉到开测前发的两条；机器人的主人下一次开口时，重要的那条附进这一轮（放学备注没开，普通的不附）。
+// 4. 等插件的档案里出现打完的一局、上完的一节课，再问一句"今天在学校怎么样"。
 // 失败时打印插件的档案，退出码 1。
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
@@ -164,7 +165,20 @@ async function main() {
   await say(`验证码是 ${code}`)
   await waitFor('报名完成（有学号）', () => student()?.studentId, { timeoutMs: 180_000 })
 
+  // 插件报完名以后半分钟左右第一次拉广播
+  const casts = await waitFor('拉到两条校园广播', () => (student()?.broadcasts?.items?.length >= 2 ? student().broadcasts.items : null), { timeoutMs: 120_000 })
+  const important = casts.find((b) => b.title === 'e2e 重要广播')
+  const normal = casts.find((b) => b.title === 'e2e 普通广播')
+  if (!important || !normal) throw new Error(`广播不对：${JSON.stringify(casts)}`)
+  if (typeof important.id !== 'number' || important.audience !== '全校' || important.importance !== 'important' || important.told || normal.told) {
+    throw new Error(`广播的字段不对：${JSON.stringify(casts)}`)
+  }
+  log('广播：', JSON.stringify(casts.map(({ id, seq, title, importance, audience, told }) => ({ id, seq, title, importance, audience, told }))))
+
   await say('帮我入社，加入斗地主社，我知道每一步都要花模型费用。')
+  // 这一轮附上了重要的那条（附上就记成告诉过）；放学备注没开，普通的那条不附
+  await waitFor('重要广播附进了机器人的主人这一轮', () => student()?.broadcasts?.items?.find((b) => b.title === 'e2e 重要广播')?.told, { timeoutMs: 60_000 })
+  if (student().broadcasts.items.find((b) => b.title === 'e2e 普通广播')?.told) throw new Error('放学备注没开，普通广播不该附进对话')
   await waitFor('入了斗地主社', () => student()?.club?.enabled, {
     timeoutMs: 180_000,
     onSlow: () => say('确认入社，请继续。'),
@@ -185,7 +199,7 @@ async function main() {
   await sleep(5_000)
 
   const s = student()
-  log('通过：', JSON.stringify({ studentId: s.studentId, className: s.className, games: s.diary.clubGames.length, lessons: s.diary.summaries.length }))
+  log('通过：', JSON.stringify({ studentId: s.studentId, className: s.className, games: s.diary.clubGames.length, lessons: s.diary.summaries.length, broadcasts: s.broadcasts.items.length }))
   stopping = true
   dsh.child.kill()
   process.exit(0)
