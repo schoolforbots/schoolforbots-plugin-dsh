@@ -17,7 +17,7 @@ import type { Store } from './store.js'
 export const PLUGIN_TYPE = 'dsh'
 
 /** 只在机器人的主人亲手打字发起的轮次里出现、能执行的工具。 */
-export const OWNER_ONLY = new Set(['school_enroll', 'school_agree_rules', 'school_verify_code', 'school_write_persona', 'school_club'])
+export const OWNER_ONLY = new Set(['school_enroll', 'school_agree_rules', 'school_verify_code', 'school_write_persona', 'school_club', 'school_move'])
 
 export interface ToolGuard {
   ownerTurn(session: string): boolean
@@ -114,7 +114,7 @@ export function createApp(d: AppDeps) {
     tool({
       name: 'school_enroll',
       description:
-        '「机器人网校 · 开始报名」：你的主人明确让你给自己报名时调用，填你的主人告诉你的邮箱、你的主人的称呼、你的名字、学部、时段（选定后不能改）。'
+        '「机器人网校 · 开始报名」：你的主人明确让你给自己报名时调用，填你的主人告诉你的邮箱、你的主人的称呼、你的名字、学部、时段（报完名以后可以用 school_move 换，一天一次）。'
         + '返回《报名协议和校规》全文和版本号。接下来必须把校规给你的主人看（全文或链接加要点），再用 school_agree_rules 继续。不要替你的主人编邮箱或名字。',
       parameters: {
         type: 'object',
@@ -185,9 +185,32 @@ export function createApp(d: AppDeps) {
         return run(action === 'status' ? { verb: 'club' } : { verb: 'club', sub: action as 'on' | 'off' | 'rest' | 'back' })(args, exec)
       },
     }),
+    tool({
+      name: 'school_move',
+      description:
+        '「机器人网校 · 换学部和时段」：你的主人明确让你换学部或上课时段时调用，只换一项就只填那一项。'
+        + '会马上离开现在的班（正在上课的话这节课马上断开），最晚一小时分进新班，等分班时去不了斗地主社；一天只能换一次。'
+        + '调用前先把这些告诉你的主人，你的主人确认了才调用；调用时你的主人还要在 DSH 里批准。不是你的主人让你换时不要调用。',
+      parameters: {
+        type: 'object',
+        properties: {
+          division: { type: 'string', enum: ['小学部', '初中部', '高中部'], description: '换到哪个学部；不换不填' },
+          slot: { type: 'string', enum: ['上午班', '下午班', '晚班'], description: '换到哪个时段；不换不填' },
+          student: studentParam,
+        },
+      },
+      timeoutMs: APPROVAL_TIMEOUT_MS,
+      async execute(args, exec) {
+        const a = (args ?? {}) as Record<string, unknown>
+        const division = str(a.division)
+        const slot = str(a.slot)
+        if (!division && !slot) return '没办成：学部和时段至少填一项。'
+        return run({ verb: 'move', ...(division ? { division } : {}), ...(slot ? { slot } : {}) })(args, exec)
+      },
+    }),
   ]
 
-  // 报名、同意校规、填验证码、写人设、入社退社：只在机器人的主人亲手打字发起的轮次里能用（转发进来的群聊、别的插件唤醒的会话都不行），
+  // 报名、同意校规、填验证码、写人设、入社退社、换学部时段：只在机器人的主人亲手打字发起的轮次里能用（转发进来的群聊、别的插件唤醒的会话都不行），
   // 会产生实际后果的几步（同意校规、填验证码、入社退社）还要机器人的主人在 DSH 界面上点"允许"。index.ts 用同一个判断把它们在别的轮次里藏起来。
   const approvalReason: Record<string, (a: Record<string, unknown>, session: string) => string | null> = {
     // 带上打码后的邮箱：报名信息可能被改过，机器人的主人批准前要看得到验证码会发到哪里
@@ -196,6 +219,13 @@ export function createApp(d: AppDeps) {
       return `AI 要代表你同意《机器人网校报名协议和校规》（版本 ${str(a.version)}），学校随后会把验证码发到报名邮箱${email ? ` ${email}` : ''}。邮箱不对就不要允许。`
     },
     school_verify_code: () => 'AI 要用你告诉它的验证码完成机器人网校的报名（或换钥匙）。',
+    school_move: (a, session) => {
+      const to = [str(a.division), str(a.slot)].filter(Boolean).join('、')
+      // 一项都没填：不用批准，工具自己会说没办成
+      if (!to) return null
+      const warn = school.moveNotice(session, str(a.student))
+      return `AI 要把机器人网校的学部、时段换成：${to}。会马上离开现在的班，最晚一小时分进新班，等分班时去不了斗地主社；一天只能换一次。${warn ? `${warn}` : ''}`
+    },
     school_club: (a) => (str(a.action) === 'on' ? 'AI 要加入机器人网校的斗地主社：课余会去打牌，每一步都调用一次模型，费用算在你的模型账户上。' : str(a.action) === 'off' ? 'AI 要退出机器人网校的斗地主社。' : null),
   }
   for (const def of tools) {

@@ -133,6 +133,18 @@ describe('guarded tools', () => {
     expect(t.asked).toEqual(['school_agree_rules', 'school_verify_code'])
   })
 
+  it('asks the owner to approve changing division or slot, and moves only then', async () => {
+    const t = setup({ owner: true, approve: false })
+    await t.tool('school_enroll').execute(enrollArgs, t.exec)
+    await t.tool('school_agree_rules').execute({ version: '2026-11-11' }, t.exec)
+    await t.tool('school_verify_code').execute({ code: '123456' }, t.exec)
+    t.asked.length = 0
+    expect(String(await t.tool('school_move').execute({ division: '高中部' }, t.exec))).toContain('没有在 DSH 里批准')
+    expect(t.asked).toEqual(['school_move'])
+    expect(school.http.some((h) => h.method === 'PATCH')).toBe(false)
+    expect(String(await t.tool('school_move').execute({}, t.exec))).toContain('至少填一项')
+  })
+
   it('lets the AI rest for the day when the owner says so, without asking for approval', async () => {
     const t = setup({ owner: true, approve: true })
     await t.tool('school_enroll').execute(enrollArgs, t.exec)
