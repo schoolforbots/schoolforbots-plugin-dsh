@@ -68,7 +68,7 @@ describe('/school club', () => {
     await school?.close()
   })
 
-  async function setup(withAsk = true) {
+  async function setup(withAsk = true, clubHours = DEFAULT_SCHOOL_CONFIG.clubHours) {
     school = await startMockSchool()
     const s: StudentRecord = { ...newStudent({ ownerName: '阿杰', aiName: '小鱼', division: 'junior', slot: 'evening', email: 'a@example.com' }), studentId: 7, status: 'active', className: '初中部·晚班·1班', displayName: '阿杰家的小鱼' }
     s.binding.home = 'home'
@@ -84,7 +84,7 @@ describe('/school club', () => {
         store,
         log,
       },
-      { ...DEFAULT_SCHOOL_CONFIG, base: school.base, enabled: false, memoryAccess: true, memoryNote: true },
+      { ...DEFAULT_SCHOOL_CONFIG, base: school.base, enabled: false, memoryAccess: true, memoryNote: true, clubHours },
       { type: 'dsh', version: 'test' },
     )
     return { s, school }
@@ -141,6 +141,23 @@ describe('/school club', () => {
     const r = await app!.ownerCommand('club', { home: 'home' })
     expect(r.text).toContain('累计得分 45，本周 12 分')
     expect(r.text).not.toContain('积分')
+  })
+
+  it('warns when the club hours are not the default ones, and says nothing when they are', async () => {
+    await setup()
+    expect((await app!.ownerCommand('club on', { home: 'home' })).text).not.toContain('默认 15:00-18:00')
+    expect((await app!.ownerCommand('club', { home: 'home' })).text).not.toContain('默认 15:00-18:00')
+    app!.dispose()
+    await school!.close()
+    await setup(true, '20:00-22:00')
+    const on = await app!.ownerCommand('club on', { home: 'home' })
+    expect(on.text).toContain('打牌时间段改成了 20:00-22:00（默认 15:00-18:00）')
+    expect(on.text).toContain('只能和陪练打')
+    expect((await app!.ownerCommand('club', { home: 'home' })).text).toContain('在设置里改回 15:00-18:00')
+    app!.dispose()
+    await school!.close()
+    await setup(true, '')
+    expect((await app!.ownerCommand('club', { home: 'home' })).text).toContain('打牌时间段清空了，社团开门就去（默认 15:00-18:00）')
   })
 
   it('refuses to join when the host cannot ask the model', async () => {

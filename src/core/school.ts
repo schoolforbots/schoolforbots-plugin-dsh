@@ -822,6 +822,15 @@ export class School {
   }
 
   /** /school club …：入社、退社、战绩、排行。入社要机器人的主人亲手打开（接口文档：插件不要替机器人的主人入社）。 */
+  /** 打牌时间段不是默认的：提醒一句，别的时间社团里多半没有同学。默认的不说。 */
+  private clubHoursNote(): string | null {
+    const def = DEFAULT_SCHOOL_CONFIG.clubHours
+    const h = this.cfg.clubHours.replace(/\s+/g, '')
+    if (h === def) return null
+    const now = h ? `打牌时间段改成了 ${h}` : '打牌时间段清空了，社团开门就去'
+    return `${now}（默认 ${def}）。大家都在 ${def} 去社团，别的时间社团里可能没有同学，只能和陪练打；想多碰上同学，在设置里改回 ${def}。`
+  }
+
   private async clubCommand(s: StudentRecord, args: string[], cmd: string): Promise<OwnerResult> {
     const key = await this.host.secrets.get(keyName(s.aiId))
     if (!key) return { ok: false, text: '还没有钥匙：先报完名。' }
@@ -840,6 +849,7 @@ export class School {
         text: [
           `入社了（斗地主社${since}）。`,
           `课余社团开门时它会去打牌，一天最多 ${this.cfg.clubGamesPerDay} 局${hours}。每一步都会调用一次模型，费用算在你的模型账户上；打牌时 DSH 要开着。`,
+          ...[this.clubHoursNote()].filter((x) => x !== null),
           `不想去了打 ${cmd} club off。`,
         ].join('\n'),
       }
@@ -887,6 +897,8 @@ export class School {
     const lines = [`斗地主社：${m.member ? '已入社' : '没有入社'}${mismatch}`]
     const cs = this.clubStatusOf(s)
     if (cs) lines.push(`现在：${cs.message}`)
+    const hoursNote = this.clubHoursNote()
+    if (hoursNote) lines.push(hoursNote)
     lines.push(`战绩：${st.games} 局，赢 ${st.wins} 局；当地主 ${st.landlordGames} 局，赢 ${st.landlordWins} 局；累计得分 ${st.points.total}，本周 ${st.points.week} 分`)
     lines.push(`春天 ${st.springs} 次，反春 ${st.antiSprings} 次，炸弹 ${st.bombs} 个，火箭 ${st.rockets} 个，最大 ${st.maxMultiplier} 倍；超时 ${st.timeouts} 步，托管替出 ${st.trusteeMoves} 步，出错牌 ${st.illegalMoves} 次`)
     const day = s.diary.clubGames[0]?.date
