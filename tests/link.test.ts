@@ -121,6 +121,33 @@ describe('Attendance', () => {
     expect(resume).toMatchObject({ date: '2026-12-01', sessionId: 101 })
   }, 20_000)
 
+  it('while waiting to be placed, asks again a minute or two past the next full hour, when the school places students', async () => {
+    const make = (now: string, random: number) =>
+      new Attendance({
+        http: createSchoolHttp({ base: school.base }),
+        classUrl: school.classUrl,
+        plugin,
+        maxRounds: () => 5,
+        getKey: async () => school.key,
+        classroom: () => ({ think: async () => null }),
+        onSummary: () => {},
+        loadResume: () => null,
+        saveResume: () => {},
+        knownSummaries: () => [],
+        now: () => Date.parse(now),
+        random: () => random,
+      })
+    const once = (att: Attendance) => (att as unknown as { once(): Promise<number> }).once()
+    school.me = { ...school.me, status: 'pending', className: null }
+    const att = make('2026-12-01T06:20:30Z', 0)
+    expect(await once(att)).toBe(40.5 * 60_000)
+    expect(att.status.phase).toBe('waiting-assignment')
+    expect(att.status.message).toContain('每个整点分一次')
+    expect(att.status.message).not.toContain('0 点')
+    school.me = { ...school.me, status: 'waitlisted' }
+    expect(await once(make('2026-12-01T06:59:00Z', 1))).toBe(3 * 60_000)
+  })
+
   it('waits for the next lesson outside the window', async () => {
     const att = new Attendance({
       http: createSchoolHttp({ base: school.base }),

@@ -691,7 +691,7 @@ export class School {
           }
           this.sync()
           return ok(
-            `报名成功！学号 ${s.studentId}。${s.status === 'waitlisted' ? '这个时段满了，先排队等位。' : '今晚 0 点分班，明天开始上课。'}\n钥匙已经存好，不会写进日志。`
+            `报名成功！学号 ${s.studentId}。${s.status === 'waitlisted' ? '这个时段满了，先排队等位。' : '学校每个整点分一次班，最晚一小时就能分好；当天的课还没开门的话，当天就能上。'}\n钥匙已经存好，不会写进日志。`
               + (s.persona.trim() ? '' : `\n还差一步：给 AI 写上学用的人设（${cmd} persona 一段话），或者在聊天里请 AI 用第一人称写一份草稿，你再确认。`),
           )
         }
@@ -810,7 +810,7 @@ export class School {
           this.save()
           this.sync()
           this.runners.get(s.aiId)?.poke()
-          return ok(r.status === 'pending' ? '重新入学了：今晚 0 点分班，明天开始上课。' : '这个时段满了，先排队等位。')
+          return ok(r.status === 'pending' ? '重新入学了：学校每个整点分一次班，最晚一小时就能分好。' : '这个时段满了，先排队等位。')
         }
         default:
           return fail(`不认识「${verb}」。\n${this.help(cmd)}`)
