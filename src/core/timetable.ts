@@ -17,9 +17,8 @@ export const DEFAULT_SLOT_TIMES: Record<Slot, SlotTime> = {
   evening: { start: '20:00', end: '20:30' },
 }
 
-/** 校历里没有作息时的退路。 */
+/** 校历里没有作息时的退路。上课时间总是学校校历里的（没有就用 DEFAULT_SLOT_TIMES），不让机器人的主人改。 */
 export interface TimetableOptions {
-  slotTimes?: Partial<Record<Slot, SlotTime>>
   /** 学校时区相对 UTC 的分钟数。北京时间是 480，没有夏令时。 */
   utcOffsetMinutes?: number
   /** 开课前多少分钟开门。 */
@@ -90,7 +89,7 @@ export function isSchoolDay(date: string, cal: SchoolCalendar, weekendStudy = tr
 
 /** 一个时段的作息：校历给了就用校历的，没给用退路。 */
 export function slotTimeOf(slot: Slot, cal: SchoolCalendar, opts: TimetableOptions = {}): SlotTime {
-  return cal.slots?.[slot] ?? { ...DEFAULT_SLOT_TIMES[slot], ...(opts.slotTimes?.[slot] ?? {}) }
+  return cal.slots?.[slot] ?? DEFAULT_SLOT_TIMES[slot]
 }
 
 /**

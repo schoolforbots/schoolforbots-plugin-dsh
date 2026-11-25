@@ -42,8 +42,7 @@ describe('timetable', () => {
       doorsOpenMinutesBefore: 10,
       weekendStudy: false,
     }
-    // 设置里的退路时间被校历盖过
-    const w = nextLesson(Date.parse('2026-12-01T00:00:00Z'), 'morning', cal, { slotTimes: { morning: { start: '08:00', end: '08:30' } } })!
+    const w = nextLesson(Date.parse('2026-12-01T00:00:00Z'), 'morning', cal)!
     expect(w.startsAt).toBe(Date.parse('2026-12-01T01:30:00Z'))
     expect(w.opensAt).toBe(Date.parse('2026-12-01T01:20:00Z'))
     // 2026-12-05 是周六：没有自习就跳到周一
@@ -55,10 +54,5 @@ describe('timetable', () => {
     expect(zoneOffsetMinutes('Europe/Berlin', Date.parse('2026-07-01T12:00:00Z'))).toBe(120)
     expect(nextLesson(Date.parse('2026-12-01T00:00:00Z'), 'morning', cal)!.startsAt).toBe(Date.parse('2026-12-01T09:00:00Z'))
     expect(zoneOffsetMinutes('Not/AZone', Date.now())).toBeNull()
-  })
-
-  it('takes slot times from the settings', () => {
-    const w = nextLesson(Date.parse('2026-12-01T00:00:00Z'), 'morning', term, { slotTimes: { morning: { start: '09:00', end: '09:30' } } })!
-    expect(w.startsAt).toBe(Date.parse('2026-12-01T01:00:00Z'))
   })
 })
