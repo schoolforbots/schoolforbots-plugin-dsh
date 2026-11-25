@@ -3,7 +3,8 @@ name: Release
 # Versions (CONTRIBUTING.md, "发布新版本"). On every push to main, release-please keeps a release pull request up to
 # date: the next version in package.json and package-lock.json and its part of CHANGELOG.md, from the Conventional
 # Commits since the last release. Merging that pull request tags the commit vX.Y.Z and publishes a GitHub release with
-# that part of the changelog; then the `publish` job stages the package on npm and attaches it to the release.
+# release-please's notes; then the `publish` job stages the package on npm, attaches it to the release, and replaces
+# the notes with that part of CHANGELOG.md as it is at the tag.
 #
 # release-please acts with a token of the organization's GitHub App (RELEASE_APP_ID, RELEASE_APP_PRIVATE_KEY): a pull
 # request opened with GITHUB_TOKEN would not start the workflows, so its required checks would never run. The App's
@@ -116,18 +117,34 @@ jobs:
           file="$(npm pack --silent | tail -n 1)"
           sha256sum "$file" > "$file.sha256"
           gh release upload "$TAG" "$file" "$file.sha256" --clobber
-          # Below the changelog: where to get it, once
+          echo "PACKAGE_FILE=$file" >> "$GITHUB_ENV"
+
+      # The release notes are this version's part of CHANGELOG.md at the tag, as rewritten for owners before the
+      # release pull request was merged, not the release pull request's own description (release-please's, from the
+      # commit titles). Then where to get the package. Running again writes the same notes.
+      - name: Write the release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
           name="$(node -p "require('./package.json').name")"
           version="${TAG#v}"
-          body="$(gh release view "$TAG" --json body --jq .body)"
-          case "$body" in
-            *"npm install ./"*) ;;
-            *)
-              {
-                printf '%s\n\n---\n\n' "$body"
-                printf 'npm：https://www.npmjs.com/package/%s/v/%s（维护者在 npm 上批准以后才能从 npm 安装）。\n' "$name" "$version"
-                printf '附件 `%s` 是同一个提交打的包：`npm install ./%s`，可以用 `%s.sha256` 校验。\n' "$file" "$file" "$file"
-              } > "$RUNNER_TEMP/notes.md"
-              gh release edit "$TAG" --notes-file "$RUNNER_TEMP/notes.md"
-              ;;
-          esac
+          file="$PACKAGE_FILE"
+          # From "## [X.Y.Z](...)" (or "## X.Y.Z ...") to the next "## ", without the heading and the blank lines around
+          awk -v v="$version" '
+            /^## / {
+              if (found) exit
+              if (index($0, "## [" v "]") == 1 || $0 == "## " v || index($0, "## " v " ") == 1) { found = 1; next }
+            }
+            found { print }
+          ' CHANGELOG.md | sed -e '/./,$!d' | sed -e ':a' -e '/^\n*$/{$d;N;ba' -e '}' > "$RUNNER_TEMP/changes.md"
+          if [ ! -s "$RUNNER_TEMP/changes.md" ]; then
+            echo "::warning::CHANGELOG.md has no part for $version; keeping the notes release-please wrote"
+            gh release view "$TAG" --json body --jq .body | sed '/^---$/,$d' > "$RUNNER_TEMP/changes.md"
+          fi
+          {
+            cat "$RUNNER_TEMP/changes.md"
+            printf '\n---\n\n'
+            printf 'npm：https://www.npmjs.com/package/%s/v/%s（维护者在 npm 上批准以后才能从 npm 安装）。\n' "$name" "$version"
+            printf '附件 `%s` 是同一个提交打的包：`npm install ./%s`，可以用 `%s.sha256` 校验。\n' "$file" "$file" "$file"
+          } > "$RUNNER_TEMP/notes.md"
+          gh release edit "$TAG" --notes-file "$RUNNER_TEMP/notes.md"
