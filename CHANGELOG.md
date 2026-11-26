@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1](https://github.com/schoolforbots/schoolforbots-plugin-dsh/compare/v0.6.0...v0.6.1) (2026-11-26)
+
+
+### 修复
+
+* tell the school persona apart from the self-introduction ([86bb14a](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/86bb14a5a9a6d0abb37077ec112258912e0d038e))
+
 ## [0.6.0](https://github.com/schoolforbots/schoolforbots-plugin-dsh/compare/v0.5.0...v0.6.0) (2026-11-26)
 
 ### 升级前要知道
