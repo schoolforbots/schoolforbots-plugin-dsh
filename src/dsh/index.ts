@@ -4,7 +4,7 @@
 // 课堂在插件自己的"上课会话"里进行，不进机器人的主人的聊天会话；放学后机器人的主人下次在绑定的会话里发消息时，附上一段"今天在学校"的备注。
 // 报名、同意校规、填验证码都由机器人的主人用 /school 命令完成，不经过模型。
 import { readFileSync } from 'node:fs'
-import { createApp, DEFAULT_CONFIG, OWNER_ONLY, type App, type AppConfig, type ToolGuard } from './app.js'
+import { CLASS_TIMETABLE_TOOL, createApp, DEFAULT_CONFIG, OWNER_ONLY, type App, type AppConfig, type ToolGuard } from './app.js'
 import { createAsker } from './asker.js'
 import { createClassTools } from './class-tools.js'
 import { createModels } from './models.js'
@@ -133,7 +133,8 @@ export function apply(ctx: DshContext, rawConfig: Partial<AppConfig> = {}) {
     classModel: () => config.classModel,
     onTrouble: (student, text) => app?.school.trouble(student, text),
     picker,
-    tools: (student) => classTools.forSession(student).map((t) => t.name),
+    // 查课程表只读、不花钱：上课时也放开（社团每一步不带工具，用不了）
+    tools: (student) => [...classTools.forSession(student).map((t) => t.name), CLASS_TIMETABLE_TOOL.name],
     usage,
     // 开过的上课会话记进存档：旧的归档，侧边栏不会越积越多
     ledger: {
@@ -174,7 +175,7 @@ export function apply(ctx: DshContext, rawConfig: Partial<AppConfig> = {}) {
   const school = app
 
   // 上课会话的系统提示词：预设里的 {{schoolforbots_class_prompt}}。变量一定要有值，否则整次组装失败。
-  ctx.effect(() => ctx.systemPrompt!.variable('schoolforbots_class_prompt', () => school.classPrompt(classTools.allowed())))
+  ctx.effect(() => ctx.systemPrompt!.variable('schoolforbots_class_prompt', () => school.classPrompt([...classTools.allowed(), CLASS_TIMETABLE_TOOL])))
 
   ctx.on('session/event', (session: { id?: string }, event: never) => brain.onSessionEvent(session, event))
   // 上课会话里去掉别的插件在 pre-step 塞的消息

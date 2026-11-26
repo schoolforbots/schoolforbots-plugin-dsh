@@ -14,6 +14,7 @@ import { DEFAULT_CLUB_SETTINGS, type IdlePolicy, type InvitePolicy, type JoinMod
 import { broadcastNote, expired, mergeBroadcasts, renderBroadcast, untoldBroadcasts } from './broadcasts.js'
 import type { ClassTool } from './class-tools.js'
 import { INTRO_CLEAR, INTRO_MAX, introLength, normalizeIntro } from './intro.js'
+import { renderAll, renderMine, TIMETABLE_MAX_DAYS, type TimetableResult } from './school-timetable.js'
 import { clubLogRow, renderLogRow, type GameDetail } from './club-log.js'
 import { ClubRecorder, LessonRecorder, REPLAY_FORMAT, type ReplayLine } from './replay.js'
 import type { ClubGameRecord } from './doudizhu.js'
@@ -49,6 +50,8 @@ const LOG_MAX = 20
 const CAST_FIRST_MS = 20_000
 const CAST_EVERY_MS = 30 * 60_000
 const CAST_MAX_PAGES = 5
+/** 课程表在本地留多久：上课、打牌时 AI 可能一轮里查好几次，不每次都问学校。 */
+const TIMETABLE_CACHE_MS = 10 * 60_000
 /** 取一局的完整牌谱失败后，第 n 次重试前等 n 倍这么久。 */
 const REPLAY_RETRY_MS = 60_000
 
@@ -130,6 +133,8 @@ export type AgentAction =
   | { verb: 'move'; division?: string; slot?: string }
   /** 交自我介绍（AI 写的，工具要机器人的主人在 DSH 里批准）；INTRO_CLEAR 是删掉。 */
   | { verb: 'intro'; text: string }
+  /** 查课程表：mine 是自己的学部和时段，all 是全校的。 */
+  | { verb: 'timetable'; scope?: 'mine' | 'all'; days?: number }
 
 export function slotTime(s: string): SlotTime | undefined {
   const m = /^\s*(\d{1,2}:\d{2})\s*[-~～—]\s*(\d{1,2}:\d{2})\s*$/.exec(s)
@@ -614,6 +619,7 @@ export class School {
       : action.verb === 'enroll' ? ['enroll', ...action.fields]
       : action.verb === 'agree' ? ['agree', action.version]
       : action.verb === 'code' ? ['code', action.code]
+      : action.verb === 'timetable' ? ['timetable', ...(action.scope === 'all' ? ['all'] : []), ...(action.days ? [String(action.days)] : [])]
       : action.verb === 'move' ? ['move', ...(action.division ? [action.division] : []), ...(action.slot ? [action.slot] : []), '确认']
       : action.sub ? ['club', action.sub] : ['club']
     // 只有开头的 @ 会被当成"指定学生"，所以不许以 @ 开头；邮箱中间的 @ 没关系
@@ -675,6 +681,39 @@ export class School {
     }
   }
 
+  private timetableCache: { at: number; data: TimetableResult; tz: string } | null = null
+
+  /** 课程表（本地留 10 分钟）和学校的时区。旧学校没有这个接口：抛 SchoolError，status 404。 */
+  private async loadTimetable(): Promise<{ data: TimetableResult; tz: string }> {
+    const c = this.timetableCache
+    if (c && Date.now() - c.at < TIMETABLE_CACHE_MS) return c
+    const [data, cal] = await Promise.all([this.http.timetable(TIMETABLE_MAX_DAYS), this.http.calendar().catch(() => null)])
+    const fresh = { at: Date.now(), data, tz: cal?.timezone || 'Asia/Shanghai' }
+    this.timetableCache = fresh
+    return fresh
+  }
+
+  /**
+   * 课程表的文字。默认看自己的：指定的学生、这个会话的学生、只有一个学生时就是它；认不出是谁就每个学生都列；
+   * 还没有学生，或者要看全校的，列全校的。没分班的按报名时选的学部和时段。
+   */
+  private async timetableText(o: { all: boolean; days: number; home: string; named?: string }): Promise<string> {
+    let t: { data: TimetableResult; tz: string }
+    try {
+      t = await this.loadTimetable()
+    } catch (e) {
+      if (e instanceof SchoolError && e.status === 404) return '学校还不支持查课程表。'
+      throw e
+    }
+    const data = { ...t.data, days: t.data.days.slice(0, o.days) }
+    const picked = this.pickForOwner(o.home, o.named)
+    const who = o.all ? [] : picked ? [picked] : this.students
+    if (!who.length) return renderAll(data, t.tz)
+    return who
+      .map((s) => renderMine(data, { name: displayNameOf(s), division: s.division, slot: s.slot, placed: s.status === 'active' || s.status === 'suspended' }, t.tz))
+      .join('\n\n')
+  }
+
   /** 换学部、时段前要提醒的：正在上课的话，这节课会马上断开。没有返回 null。 */
   private moveWarning(s: StudentRecord): string | null {
     return this.runners.get(s.aiId)?.status.phase === 'in-class' ? '它正在上课：一换，这节课马上断开（和中途退学一样，不算违纪）。' : null
@@ -717,6 +756,7 @@ export class School {
       `${cmd} broadcasts [条数]        学校发来的校园广播（默认 5 条）`,
       `${cmd} records                 在校记录（批评、停课等）`,
       `${cmd} rules                   看现在的校规`,
+      `${cmd} timetable [all] [天数]   课程表：默认看自己的学部和时段，all 看全校的（最多 ${TIMETABLE_MAX_DAYS} 天）`,
       `${cmd} rename 主人名 AI名       改名`,
       `${cmd} intro [介绍]             看或交自我介绍（最多 ${INTRO_MAX} 字，进新班的第一节课老师会念；${INTRO_CLEAR} 是删掉）`,
       `${cmd} move 学部 时段           换学部、时段（只换一项就只填那一项；一天一次，会马上离开原来的班）`,
@@ -1005,6 +1045,12 @@ export class School {
         }
         case 'intro':
           return await this.introCommand(target(), rest.slice(verb.length), cmd, !!ctx.fromAgent)
+        case 'timetable': {
+          const all = args.includes('all') || args.includes('全校')
+          const n = args.map((a) => Number(a)).find((x) => Number.isInteger(x))
+          if (n !== undefined && (n < 1 || n > TIMETABLE_MAX_DAYS)) return fail(`天数是 1 到 ${TIMETABLE_MAX_DAYS}。`)
+          return ok(await this.timetableText({ all, days: n ?? TIMETABLE_MAX_DAYS, home, named }))
+        }
         case 'rename': {
           const s = target()
           const [ownerName, aiName] = args

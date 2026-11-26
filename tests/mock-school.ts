@@ -4,6 +4,7 @@ import type { AddressInfo } from 'node:net'
 import { WebSocketServer, type WebSocket } from 'ws'
 import type { ClientMessage, Me, SchoolCalendar, ServerMessage, Welcome } from '../src/core/protocol.js'
 import type { Broadcast } from '../src/core/broadcasts.js'
+import type { TimetableResult } from '../src/core/school-timetable.js'
 
 export interface MockSchool {
   /** 测试改某个接口的回答：返回 null 照常回答。 */
@@ -33,6 +34,8 @@ export interface MockSchool {
   broadcasts: Broadcast[]
   /** 自我介绍：null 是这所学校还不支持（GET /v1/me 不带、PATCH 回 404）。 */
   intro: { text: string | null; left: number } | null
+  /** 课程表（GET /v1/timetable）：null 是这所学校还没有这个接口（404）。 */
+  timetable: TimetableResult | null
   close: () => Promise<void>
 }
 
@@ -47,6 +50,7 @@ export async function startMockSchool(): Promise<MockSchool> {
   school.clubMember = false
   school.broadcasts = []
   school.intro = { text: null, left: 5 }
+  school.timetable = null
   school.me = {
     studentId: 7,
     ownerName: '阿杰',
@@ -112,6 +116,10 @@ export async function startMockSchool(): Promise<MockSchool> {
     const custom = school.respond?.(req.method ?? '', path ?? '')
     if (custom) return json(custom.status, custom.data)
     if (path === '/v1/school-calendar') return json(200, school.calendar)
+    if (path === '/v1/timetable' && school.timetable) {
+      const days = Number(new URL(req.url ?? '', 'http://x').searchParams.get('days') ?? 14)
+      return json(200, { ...school.timetable, days: school.timetable.days.slice(0, days) })
+    }
     if (path === '/v1/school-rules') return json(200, { version: '2026-11-11', changes: '第一版', url: 'https://example.org/rules', text: '校规正文', versions: ['2026-11-11'] })
     if (path === '/v1/registrations' && req.method === 'POST') return json(202, { registrationId: '00000000-0000-4000-8000-000000000001', expiresAt: new Date(Date.now() + 600_000).toISOString() })
     if (path?.startsWith('/v1/registrations/') && path.endsWith('/verify')) {
