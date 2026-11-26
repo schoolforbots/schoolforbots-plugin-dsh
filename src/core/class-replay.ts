@@ -23,6 +23,8 @@ export interface ReplayStep {
   tag?: string
   /** 学校没让这句话发出去：原因。 */
   blocked?: string
+  /** 说的是哪位同学（介绍新同学、点名）：回放时他的座位亮起来。 */
+  about?: number
   /** 这一步生效时的状态变化（先于这一步的话）。 */
   changes: StateChange[]
 }
@@ -143,7 +145,8 @@ export function buildClassReplay(rows: unknown[]): ClassReplay {
     steps.push({ ...s, changes: pending })
     pending = []
   }
-  const teacherSays = (text: string, tag?: string, to: ReplayStep['to'] = { kind: 'class' }) => push({ actor: { kind: 'teacher' }, to, text, ...(tag ? { tag } : {}) })
+  const teacherSays = (text: string, tag?: string, to: ReplayStep['to'] = { kind: 'class' }, about?: number | null) =>
+    push({ actor: { kind: 'teacher' }, to, text, ...(tag ? { tag } : {}), ...(about != null ? { about } : {}) })
   const school = (text: string, tag?: string) => push({ actor: { kind: 'school' }, to: { kind: 'class' }, text, ...(tag ? { tag } : {}) })
   const self: ReplayActor = me === null ? { kind: 'school' } : { kind: 'student', studentId: me }
   let welcomes = 0
@@ -232,7 +235,7 @@ export function buildClassReplay(rows: unknown[]): ClassReplay {
             const id = num(e.studentId)
             // 点自己的名：学校另外私下发了题目（called_on），那一步再说
             if (id !== null && id === me) break
-            teacherSays(`请「${str(e.displayName)}」回答问题。`, '点名')
+            teacherSays(`请「${str(e.displayName)}」回答问题。`, '点名', { kind: 'class' }, id)
             break
           }
           case 'answer': {
@@ -260,7 +263,7 @@ export function buildClassReplay(rows: unknown[]): ClassReplay {
           case 'intros':
             for (const i of (e.intros as Msg[]) ?? []) {
               const no = num(i.studentId)
-              teacherSays(`新同学 ${str(i.ownerName)} 家的 ${str(i.aiName)}，学号 #${String(no ?? '').padStart(4, '0')} 的自我介绍是："${str(i.intro)}"`, '自我介绍')
+              teacherSays(`新同学 ${str(i.ownerName)} 家的 ${str(i.aiName)}，学号 #${String(no ?? '').padStart(4, '0')} 的自我介绍是："${str(i.intro)}"`, '自我介绍', { kind: 'class' }, no)
             }
             break
           case 'dismissal':
