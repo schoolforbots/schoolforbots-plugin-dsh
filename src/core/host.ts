@@ -67,4 +67,9 @@ export interface SchoolHost {
     lessons(studentId: number): Promise<{ date: string; title: string; className: string }[]>
     open(studentId: number, index: number): Promise<{ url: string; opened: boolean; steps: number } | null>
   }
+  /** 斗地主回放（/school club replay）：和上课回放一样，列出存着的对局记录、打开其中一局。不提供就没有这个命令。 */
+  clubReplay?: {
+    games(studentId: number): Promise<{ date: string; title: string }[]>
+    open(studentId: number, index: number): Promise<{ url: string; opened: boolean; steps: number } | null>
+  }
 }

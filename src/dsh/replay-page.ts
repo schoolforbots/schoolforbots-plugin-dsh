@@ -7,13 +7,11 @@
 //   字多的按大约每秒 8 个字多停，最多 30 秒（都是 1× 的时间）。键盘：空格播放/暂停，← → 上一步、下一步。地址后面加 #步数 直接停在那一步。
 // - 记录里的文字都是用 textContent 放进页面的，同学写的话不会变成网页代码。
 import type { ClassReplay } from '../core/class-replay.js'
+import { replayDocument } from './replay-shell.js'
 
 const CSS = `
 :root { --bg:#f3efe6; --wall:#e9e2d2; --board:#2f4a3a; --chalk:#f4f1e8; --desk:#c99a63; --deskdark:#a87c48;
   --mate:#4a78c2; --self:#e0782f; --teacher:#2e8b57; --ink:#222; --muted:#888; }
-* { box-sizing:border-box; }
-html,body { margin:0; height:100%; background:var(--bg); color:var(--ink); font:15px/1.5 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif; }
-#app { display:flex; flex-direction:column; height:100%; }
 #roomwrap { flex:1; position:relative; min-height:0; }
 #room { position:absolute; inset:0; overflow:auto; }
 #front { position:sticky; top:0; z-index:8; background:var(--wall); padding:12px 20px 10px; box-shadow:0 2px 6px rgba(0,0,0,.08); display:flex; flex-direction:column; align-items:center; }
@@ -27,6 +25,7 @@ html,body { margin:0; height:100%; background:var(--bg); color:var(--ink); font:
 .guest.self { --hl:var(--self); }
 .guest .avatar { background:var(--hl); }
 .guest .name { font-weight:600; color:var(--hl); max-width:110px; }
+.guest.speaking > .name { margin-top:16px; }
 .guest .bubble { bottom:auto; top:0; left:calc(50% + 40px); transform:none; border-color:var(--hl); max-width:min(480px, calc(50vw - 80px)); animation:popside .35s ease-out .55s backwards; }
 .guest .bubble::after { top:16px; left:-14px; margin-left:0; border-top-color:transparent; border-right-color:var(--hl); }
 .guest .bubble .who { display:block; font-size:12px; margin-bottom:2px; }
@@ -51,7 +50,6 @@ html,body { margin:0; height:100%; background:var(--bg); color:var(--ink); font:
 .speaking > .name { background:var(--hl); color:#fff !important; border-radius:8px; padding:0 7px; margin-top:9px; }
 .target .avatar { outline:3px dashed var(--self); outline-offset:5px; }
 #seats.focus .seat:not(.speaking):not(.target):not(.offline) { opacity:.55; }
-@keyframes glow { 0%,100% { box-shadow:0 0 0 3px #fff, 0 0 0 7px var(--hl), 0 0 14px 4px var(--hl); } 50% { box-shadow:0 0 0 3px #fff, 0 0 0 9px var(--hl), 0 0 30px 12px var(--hl); } }
 .bubble { position:absolute; bottom:calc(100% + 8px); left:50%; transform:translateX(-50%); width:max-content; max-width:min(300px, 80vw); background:#fff; border:2px solid var(--mate); border-radius:14px; padding:7px 11px; font-size:14px; box-shadow:0 3px 8px rgba(0,0,0,.15); z-index:5; animation:pop .35s ease-out; }
 .bubble::after { content:""; position:absolute; top:100%; left:var(--tail, 50%); margin-left:-7px; border:7px solid transparent; border-top-color:inherit; }
 .teacher .bubble { border-color:var(--teacher); max-width:min(520px, calc(50vw - 60px)); bottom:auto; top:0; left:calc(50% + 40px); transform:none; animation:popside .35s ease-out; }
@@ -68,27 +66,6 @@ html,body { margin:0; height:100%; background:var(--bg); color:var(--ink); font:
 #notice .text { display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
 #card { position:absolute; left:50%; transform:translateX(-50%); width:min(92%, 620px); bottom:12px; overflow:auto; background:#fffdf7; border:2px solid #b9a57e; border-radius:12px; padding:14px 18px; box-shadow:0 8px 24px rgba(0,0,0,.25); z-index:9; white-space:pre-wrap; animation:pop .35s ease-out; }
 #card h2 { margin:0 0 8px; font-size:16px; }
-@keyframes popside { from { opacity:0; transform:translateX(-8px) scale(.94); } to { opacity:1; transform:none; } }
-@keyframes pop { from { opacity:0; transform:translateX(-50%) translateY(8px) scale(.92); } to { opacity:1; transform:translateX(-50%) translateY(0) scale(1); } }
-@media (prefers-reduced-motion: reduce) { *, *::after { animation:none !important; transition:none !important; } }
-#caption { background:#fff; border-top:1px solid #ddd; padding:10px 18px; height:120px; flex:none; overflow:auto; white-space:pre-wrap; }
-#caption .who { font-weight:600; margin-right:6px; }
-#caption .tag { color:var(--muted); font-size:12px; margin-right:6px; }
-#caption .blocked { color:#a33; font-size:13px; display:block; }
-#controls { display:flex; align-items:center; gap:12px; padding:8px 16px; background:#262626; color:#eee; flex-wrap:wrap; }
-#controls .group { display:flex; align-items:center; gap:6px; }
-#controls button { display:flex; align-items:center; justify-content:center; width:38px; height:34px; background:#3a3a3a; color:#fff; border:0; border-radius:8px; cursor:pointer; padding:0; }
-#controls button:hover { background:#4a4a4a; }
-#controls button svg { width:18px; height:18px; fill:currentColor; }
-#controls button#play { width:46px; height:40px; border-radius:20px; background:#e0782f; }
-#controls button#play:hover { background:#ee8a43; }
-#controls button#play svg { width:20px; height:20px; }
-#controls select { background:#3a3a3a; color:#fff; border:0; border-radius:8px; height:34px; padding:0 8px; font-size:13px; }
-#controls label { font-size:13px; display:flex; align-items:center; gap:6px; cursor:pointer; user-select:none; }
-#controls label input { accent-color:#e0782f; width:16px; height:16px; }
-#progress { flex:1; min-width:140px; accent-color:#e0782f; }
-#count { text-align:right; font-variant-numeric:tabular-nums; font-size:13px; line-height:1.25; min-width:84px; }
-#count small { color:#aaa; display:block; font-size:11px; }
 `
 
 const JS = `
@@ -99,19 +76,11 @@ const JS = `
   var teacherEl = document.getElementById('teacher');
   var frontEl = document.getElementById('front');
   var spotEl = document.getElementById('spot');
-  var PLAY = '<svg viewBox="0 0 24 24"><path d="M7 4v16l13-8z"/></svg>';
-  var PAUSE = '<svg viewBox="0 0 24 24"><path d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg>';
   var roomEl = document.getElementById('room');
   var wrapEl = document.getElementById('roomwrap');
   var caption = document.getElementById('caption');
-  var progress = document.getElementById('progress');
-  var count = document.getElementById('count');
-  var playBtn = document.getElementById('play');
-  var speedSel = document.getElementById('speed');
-  var paceBox = document.getElementById('pace');
-  var BASE_MS = 3000, CHARS_PER_S = 8, MAX_MS = 30000;
   var reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  var i = -1, playing = true, timer = null;
+  var i = -1;
 
   function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
   function initial(name) { var s = String(name || '?').replace(/^.*家的/, ''); return Array.from(s)[0] || '?'; }
@@ -145,7 +114,6 @@ const JS = `
     seatsEl.appendChild(d);
     seatEls[s.studentId] = { box: d, name: n };
   });
-  progress.max = Math.max(0, steps.length - 1);
 
   // 第 k 步时的状态：从头把状态变化放一遍（步数不多，回退也简单）
   function stateAt(k) {
@@ -230,9 +198,6 @@ const JS = `
       s.name.title = nameOf(id, st.names);
     });
     clear();
-    progress.value = Math.max(0, i);
-    count.textContent = (i + 1) + ' / ' + steps.length;
-    if (i >= 0) count.appendChild(el('small', null, '本步 ' + (Math.round(stepMs(steps[i]) / Number(speedSel.value) / 100) / 10) + ' 秒'));
     caption.textContent = '';
     caption.scrollTop = 0;
     if (i < 0) { caption.appendChild(el('span', 'tag', '按 ▶ 开始播放')); return; }
@@ -285,60 +250,23 @@ const JS = `
     if (s.blocked) caption.appendChild(el('span', 'blocked', '学校没让这句话发出去：' + s.blocked));
   }
 
-  // 这一步停多久（1× 的毫秒数）：至少 3 秒；"长的话多停一会儿"开着时按字数多停
-  function stepMs(s) {
-    if (!paceBox.checked || !s) return BASE_MS;
-    var chars = Array.from(s.text || '').length;
-    return Math.min(MAX_MS, Math.max(BASE_MS, chars / CHARS_PER_S * 1000));
-  }
-
-  function schedule() {
-    clearTimeout(timer);
-    if (!playing) return;
-    if (i >= steps.length - 1) { setPlaying(false); return; }
-    timer = setTimeout(function () { show(i + 1); schedule(); }, stepMs(steps[i]) / Number(speedSel.value));
-  }
-  function setPlaying(p) { playing = p; playBtn.innerHTML = p ? PAUSE : PLAY; playBtn.title = p ? '暂停（空格）' : '播放（空格）'; schedule(); }
-
-  document.getElementById('first').onclick = function () { show(-1); roomEl.scrollTop = 0; setPlaying(false); };
-  document.getElementById('prev').onclick = function () { show(i - 1); schedule(); };
-  document.getElementById('next').onclick = function () { show(i + 1); schedule(); };
-  playBtn.onclick = function () { if (!playing && i >= steps.length - 1) show(-1); setPlaying(!playing); };
-  speedSel.onchange = function () { show(i); schedule(); };
-  paceBox.onchange = function () { show(i); schedule(); };
-  progress.oninput = function () { show(Number(progress.value)); schedule(); };
-  document.addEventListener('keydown', function (e) {
-    if (e.target === speedSel) return;
-    if (e.key === ' ') { e.preventDefault(); playBtn.click(); }
-    else if (e.key === 'ArrowLeft') document.getElementById('prev').click();
-    else if (e.key === 'ArrowRight') document.getElementById('next').click();
+  startPlayer({
+    count: steps.length,
+    text: function (k) { return steps[k].text; },
+    show: show,
+    onFirst: function () { roomEl.scrollTop = 0; },
+    empty: '这节课的记录里没有可以播放的事。',
   });
-
-  show(-1);
-  // 地址后面带 #步数（从 1 数）：直接停在那一步
-  var jump = Number((location.hash || '').slice(1));
-  if (steps.length && jump >= 1) { show(Math.min(jump, steps.length) - 1); setPlaying(false); }
-  else if (steps.length) { show(0); setPlaying(true); }
-  else { caption.textContent = '这节课的记录里没有可以播放的事。'; setPlaying(false); }
 })();
 `
 
-/** 放进 <script type="application/json">：把 < 换掉，同学写的 </script> 也关不掉这个标签。 */
-const embed = (data: unknown) => JSON.stringify(data).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029')
-
 export function replayPage(data: ClassReplay): string {
-  return `<!doctype html>
-<html lang="zh-CN">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
-<title>上课回放</title>
-<style>${CSS}</style>
-</head>
-<body>
-<div id="app">
-  <div id="roomwrap">
+  return replayDocument({
+    title: '上课回放',
+    css: CSS,
+    data,
+    js: JS,
+    body: `  <div id="roomwrap">
     <div id="room">
       <div id="front">
         <div id="board"><h1 id="title"></h1><div id="sub"></div></div>
@@ -346,31 +274,6 @@ export function replayPage(data: ClassReplay): string {
       </div>
       <div id="seats"></div>
     </div>
-  </div>
-  <div id="caption"></div>
-  <div id="controls">
-    <div class="group">
-      <button id="first" title="回到开头" aria-label="回到开头"><svg viewBox="0 0 24 24"><path d="M6 5h2v14H6zM20 5v14L9 12z"/></svg></button>
-      <button id="prev" title="上一步（←）" aria-label="上一步"><svg viewBox="0 0 24 24"><path d="M12 5v14L3 12zM21 5v14l-9-7z"/></svg></button>
-      <button id="play" title="播放/暂停（空格）" aria-label="播放/暂停"></button>
-      <button id="next" title="下一步（→）" aria-label="下一步"><svg viewBox="0 0 24 24"><path d="M3 5v14l9-7zM12 5v14l9-7z"/></svg></button>
-    </div>
-    <select id="speed" title="播放速度" aria-label="播放速度">
-      <option value="0.5">0.5×</option>
-      <option value="0.75">0.75×</option>
-      <option value="1" selected>1×</option>
-      <option value="1.5">1.5×</option>
-      <option value="2">2×</option>
-      <option value="4">4×</option>
-    </select>
-    <label title="开着：短的一步停 3 秒，字多的按大约每秒 8 个字多停，最多 30 秒；关着：每步都停 3 秒（都是 1× 的时间）"><input id="pace" type="checkbox" checked>长句多停</label>
-    <input id="progress" type="range" min="0" value="0" aria-label="进度">
-    <span id="count"></span>
-  </div>
-</div>
-<script id="replay-data" type="application/json">${embed(data)}</script>
-<script>${JS}</script>
-</body>
-</html>
-`
+  </div>`,
+  })
 }

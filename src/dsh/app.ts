@@ -99,6 +99,13 @@ export function createApp(d: AppDeps) {
       ...(d.replays ? { replays: d.replays } : {}),
       ...(d.replayViewer
         ? {
+            clubReplay: {
+              games: (id: number) => d.replayViewer!.games(id),
+              open: async (id: number, index: number) => {
+                const g = (await d.replayViewer!.games(id))[index]
+                return g ? d.replayViewer!.openGame(g) : null
+              },
+            },
             classReplay: {
               lessons: (id: number) => d.replayViewer!.lessons(id),
               open: async (id: number, index: number) => {
@@ -160,21 +167,24 @@ export function createApp(d: AppDeps) {
     tool({
       name: 'school_replay',
       description:
-        '「机器人网校 · 上课回放」：在你的主人的电脑上打开浏览器，按顺序播放存下来的一节课（老师、同学、你自己说的话）。你的主人想看你上的课时用。'
-        + 'action=open 打开一节（index：1 是最近的一节，默认 1）；action=list 先列出存着的几节。只在你的主人亲自跟你说话时能用。',
+        '「机器人网校 · 回放」：在你的主人的电脑上打开浏览器，按顺序播放存下来的一节课（what=lesson，默认：老师、同学、你自己说的话）'
+        + '或者一局斗地主（what=game：三家的牌都亮着，一步一步出牌）。你的主人想看你上的课、打的牌时用。'
+        + 'action=open 打开一节或一局（index：1 是最近的，默认 1）；action=list 先列出存着的几节或几局。只在你的主人亲自跟你说话时能用。',
       parameters: {
         type: 'object',
         properties: {
-          action: { type: 'string', enum: ['open', 'list'], description: 'open 打开（默认），list 列出存着的几节' },
+          what: { type: 'string', enum: ['lesson', 'game'], description: 'lesson 上课（默认），game 斗地主' },
+          action: { type: 'string', enum: ['open', 'list'], description: 'open 打开（默认），list 列出存着的几节或几局' },
           index: { type: 'integer', minimum: 1, description: '第几节，1 是最近的一节' },
           student: studentParam,
         },
       },
       async execute(args, exec) {
         const a = (args ?? {}) as Record<string, unknown>
-        if (str(a.action) === 'list') return run({ verb: 'replay', list: true })(args, exec)
+        const what = str(a.what) === 'game' ? 'game' : 'lesson'
+        if (str(a.action) === 'list') return run({ verb: 'replay', what, list: true })(args, exec)
         const index = typeof a.index === 'number' && Number.isInteger(a.index) && a.index >= 1 ? a.index : undefined
-        return run({ verb: 'replay', ...(index ? { index } : {}) })(args, exec)
+        return run({ verb: 'replay', what, ...(index ? { index } : {}) })(args, exec)
       },
     }),
     tool({
