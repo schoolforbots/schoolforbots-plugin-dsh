@@ -44,9 +44,10 @@ describe('the lesson recorder', () => {
     r.tap('in', { type: 'ack', id: 'c2', ok: false, error: { code: 'blocked', message: '这句话不能说', category: 'sensitive' } })
     r.linkEnded({ code: 1006, closing: null, unauthorized: false })
     r.tap('in', { type: 'summary', sessionId: 101, summary: {} })
+    r.tap('in', { type: 'class.event', seq: 3, event: { kind: 'intros', intros: [] } })
     const f = r.finish({ date: '2026-12-01', studentId: 7, endedAt: Date.parse('2026-12-01T12:31:00Z') })!
     expect(f.name).toBe('7-101')
-    expect(f.head).toMatchObject({ format: 1, kind: 'lesson', studentId: 7, sessionId: 101, class: { className: '初中部·晚班·1班' }, summary: true, lines: 11 })
+    expect(f.head).toMatchObject({ format: 1, kind: 'lesson', studentId: 7, sessionId: 101, class: { className: '初中部·晚班·1班' }, summary: true, lines: 12 })
     expect(f.lines.map((l) => [l.dir, l.who?.role ?? null, l.who?.studentId ?? null])).toEqual([
       ['out', 'self', null],
       ['in', 'school', null],
@@ -59,6 +60,7 @@ describe('the lesson recorder', () => {
       ['in', 'school', null],
       ['link', null, null],
       ['in', 'school', null],
+      ['in', 'teacher', null],
     ])
     expect(f.lines[2]!.who).toEqual({ role: 'teacher', name: '老周' })
     expect(f.lines[3]!.who).toEqual({ role: 'classmate', studentId: 9, name: '小林家的豆豆' })

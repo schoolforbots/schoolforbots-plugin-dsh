@@ -209,6 +209,8 @@ export class LessonRecorder {
           case 'segment':
           case 'dismissal':
           case 'called_on':
+          // 老师念新同学的自我介绍（介绍是同学自己写的，每条带着学号和名字）
+          case 'intros':
             return this.teacherSpeaker()
           case 'answer':
           case 'qa':
