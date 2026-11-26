@@ -157,6 +157,21 @@ describe('class sessions', () => {
     expect(brain.isSchoolSession(sid)).toBe(true)
   })
 
+  it('says only the last answer of a step in which the AI used tools first, and counts the calls per step', async () => {
+    const { brain } = setup()
+    dsh.toolSteps = ['school_timetable', 'school_timetable']
+    dsh.reply = () => '明天上语文《静夜思》'
+    expect(await brain.think('ai1', 't', { purpose: 'chat-reply', text: '同学问明天上什么课', deadline: Date.now() + 5000 })).toBe('明天上语文《静夜思》')
+    // 下一步重新数：一步最多 3 次，第 4 次被拒，最后的回答照样交回来
+    dsh.toolSteps = ['a', 'b', 'c', 'd']
+    dsh.reply = () => '好'
+    expect(await brain.think('ai1', 't', { purpose: 'chat-reply', text: '再问', deadline: Date.now() + 5000 })).toBe('好')
+    const [sid] = [...dsh.sessions.keys()]
+    const lastSay = (await dsh.preExecute(sid!, 'e'))
+    expect(lastSay.kind).toBe('allow') // 这一步已经结束，不再算进去
+    dsh.toolSteps = []
+  })
+
   it('never gives a timed-out turn\'s late answer to the next step', async () => {
     const { brain, troubles } = setup()
     dsh.delayMs = 2_500

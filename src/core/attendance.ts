@@ -81,6 +81,11 @@ export interface AttendanceDeps {
 
 const MIN = 60_000
 const HOUR = 60 * MIN
+/**
+ * 开门以后各插件随机错开的最长时间：大家算出的开门时刻是同一秒，一起连上来学校要同时处理一大波 hello。
+ * 开课前 15 分钟就开门，晚几十秒进教室不耽误上课。维护结束后回来也照样错开。
+ */
+export const DOOR_SPREAD_MS = 60_000
 
 export function backoffMs(failures: number, random: () => number = Math.random): number {
   const base = Math.min(60_000, 2_000 * 2 ** Math.max(0, failures - 1))
@@ -94,6 +99,8 @@ export class Attendance {
   private wake: (() => void) | null = null
   /** 最近一次读到的校历（时区、开门时间）。 */
   private cal: SchoolCalendar | null = null
+  /** 这一节课开门以后随机等多久再进教室。 */
+  private spread: { opensAt: number; ms: number } | null = null
   /** 学校在 closing 里告诉的下一节课时刻。 */
   private hint: number | null = null
   private readonly now: () => number
@@ -234,10 +241,17 @@ export class Attendance {
       const doors = (cal.doorsOpenMinutesBefore ?? 15) * MIN
       win = { ...win, opensAt: this.hint - doors, startsAt: this.hint, endsAt: this.hint + (win.endsAt - win.startsAt) }
     }
+    // 开门以后随机等一会儿再进教室（这一节课抽一次，之后醒来不再重抽）
+    if (this.spread?.opensAt !== win.opensAt) this.spread = { opensAt: win.opensAt, ms: this.random() * DOOR_SPREAD_MS }
+    const enterAt = win.opensAt + this.spread.ms
     if (now < win.opensAt) {
       this.set('waiting', `下一节课在 ${new Date(win.startsAt).toLocaleString('zh-CN', { hour12: false })}。`, { nextLessonAt: win.startsAt })
       // 一次最多睡一小时：中间校历可能变（放假、维护）
-      return Math.min(win.opensAt - now, HOUR)
+      return Math.min(enterAt - now, HOUR)
+    }
+    if (now < enterAt) {
+      this.set('waiting', `开门了，${Math.ceil((enterAt - now) / 1000)} 秒后进教室（各插件错开一点，免得一起挤进去）。`, { nextLessonAt: win.startsAt })
+      return enterAt - now
     }
     await this.attend(key, win)
     // 学校刚说了下一节课的时刻：马上按它重新排
@@ -339,7 +353,8 @@ export class Attendance {
               return
             }
             case 'maintenance':
-              this.d.saveHold?.({ until: this.now() + 5 * MIN, reason: c.message })
+              // 维护中被断开的插件很多：回来的时刻随机错开
+              this.d.saveHold?.({ until: this.now() + 5 * MIN + this.random() * DOOR_SPREAD_MS, reason: c.message })
               this.set('maintenance', c.message)
               return
           }

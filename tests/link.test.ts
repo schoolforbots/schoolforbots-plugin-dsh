@@ -148,6 +148,35 @@ describe('Attendance', () => {
     expect(await once(make('2026-12-01T06:59:00Z', 1))).toBe(3 * 60_000)
   })
 
+  it('waits a random moment after the doors open before going in, drawn once per lesson', async () => {
+    let clock = Date.parse('2026-12-01T11:40:00Z') // 晚班 20:00 上课，19:45 开门
+    let random = 0.5
+    const att = new Attendance({
+      http: createSchoolHttp({ base: school.base }),
+      classUrl: school.classUrl,
+      plugin,
+      maxRounds: () => 5,
+      getKey: async () => school.key,
+      classroom: () => ({ think: async () => null }),
+      onSummary: () => {},
+      loadResume: () => null,
+      saveResume: () => {},
+      knownSummaries: () => [],
+      now: () => clock,
+      random: () => random,
+    })
+    const once = () => (att as unknown as { once(): Promise<number> }).once()
+    // 开门前：睡到开门后 30 秒
+    expect(await once()).toBe(5 * 60_000 + 30_000)
+    // 开门后 10 秒醒来（比如被 poke）：还要等 20 秒，不重抽
+    clock = Date.parse('2026-12-01T11:45:10Z')
+    random = 0
+    expect(await once()).toBe(20_000)
+    expect(att.status.phase).toBe('waiting')
+    expect(att.status.message).toContain('20 秒后进教室')
+    expect(school.sockets).toHaveLength(0)
+  })
+
   it('waits for the next lesson outside the window', async () => {
     const att = new Attendance({
       http: createSchoolHttp({ base: school.base }),
