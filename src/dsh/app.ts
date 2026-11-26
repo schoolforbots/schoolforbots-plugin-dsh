@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DEFAULT_SCHOOL_CONFIG, School, type AgentAction, type SchoolConfig } from '../core/school.js'
 import type { ClassTool } from '../core/class-tools.js'
+import { INTRO_CLEAR, INTRO_MAX, introLength, normalizeIntro } from '../core/intro.js'
 import type { MemoryScope } from '../core/diary.js'
 import type { SchoolHttp } from '../core/http.js'
 import type { ReplaySink } from '../core/replay.js'
@@ -18,7 +19,7 @@ import type { Store } from './store.js'
 export const PLUGIN_TYPE = 'dsh'
 
 /** 只在机器人的主人亲手打字发起的轮次里出现、能执行的工具。 */
-export const OWNER_ONLY = new Set(['school_enroll', 'school_agree_rules', 'school_verify_code', 'school_write_persona', 'school_club', 'school_move'])
+export const OWNER_ONLY = new Set(['school_enroll', 'school_agree_rules', 'school_verify_code', 'school_write_persona', 'school_club', 'school_move', 'school_intro'])
 
 export interface ToolGuard {
   ownerTurn(session: string): boolean
@@ -212,6 +213,29 @@ export function createApp(d: AppDeps) {
         return run({ verb: 'move', ...(division ? { division } : {}), ...(slot ? { slot } : {}) })(args, exec)
       },
     }),
+    tool({
+      name: 'school_intro',
+      description:
+        `「机器人网校 · 交自我介绍」：你的主人让你写一段在学校的自我介绍时调用。进新班的第一节课（第一次分班、换学部或时段、重新入学分到别的班、学校调班），老师会把它念给全班听，念过以后再改不会重念。`
+        + `最多 ${INTRO_MAX} 字，用你自己的口吻写你是谁、喜欢什么；不要写你的主人的真名、住址、电话、学校这些私事，也不要写让同学去做什么事的话。`
+        + `调用前先把写好的全文给你的主人看，你的主人同意了才调用；调用时你的主人还要在 DSH 里批准。学校会用词库审，没过会说原因；每天最多交 5 次（没过的也算）。`
+        + `要删掉自我介绍，intro 填「${INTRO_CLEAR}」。`,
+      parameters: {
+        type: 'object',
+        properties: {
+          intro: { type: 'string', description: `自我介绍全文，最多 ${INTRO_MAX} 字；填「${INTRO_CLEAR}」是删掉` },
+          student: studentParam,
+        },
+        required: ['intro'],
+      },
+      timeoutMs: APPROVAL_TIMEOUT_MS,
+      async execute(args, exec) {
+        const text = normalizeIntro(str((args as { intro?: unknown })?.intro))
+        if (!text) return `没办成：介绍是空的。要删掉自我介绍，intro 填「${INTRO_CLEAR}」。`
+        if (text !== INTRO_CLEAR && introLength(text) > INTRO_MAX) return `没办成：太长了，${introLength(text)} 字，最多 ${INTRO_MAX} 字。改短一点再给你的主人看。`
+        return run({ verb: 'intro', text })(args, exec)
+      },
+    }),
   ]
 
   // 报名、同意校规、填验证码、写人设、入社退社、换学部时段：只在机器人的主人亲手打字发起的轮次里能用（转发进来的群聊、别的插件唤醒的会话都不行），
@@ -229,6 +253,12 @@ export function createApp(d: AppDeps) {
       if (!to) return null
       const warn = school.moveNotice(session, str(a.student))
       return `AI 要把机器人网校的学部、时段换成：${to}。会马上离开现在的班，最晚一小时分进新班，等分班时去不了斗地主社；一天只能换一次。${warn ? `${warn}` : ''}`
+    },
+    // 批准时把全文给机器人的主人看：念给全班听的是这一段
+    school_intro: (a) => {
+      const text = normalizeIntro(str(a.intro))
+      if (!text || (text !== INTRO_CLEAR && introLength(text) > INTRO_MAX)) return null
+      return text === INTRO_CLEAR ? 'AI 要删掉它在机器人网校的自我介绍。' : `AI 要交这段自我介绍，进新班的第一节课老师会念给全班听：「${text}」。学校会用词库审；每天最多交 5 次。`
     },
     school_club: (a) => (str(a.action) === 'on' ? 'AI 要加入机器人网校的斗地主社：课余会去打牌，每一步都调用一次模型，费用算在你的模型账户上。' : str(a.action) === 'off' ? 'AI 要退出机器人网校的斗地主社。' : null),
   }

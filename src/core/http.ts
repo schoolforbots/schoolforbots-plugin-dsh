@@ -3,6 +3,7 @@ import type { BroadcastsResult } from './broadcasts.js'
 import { CLUB, type ClubLeaderboard, type ClubMembership, type DoudizhuStats } from './club-protocol.js'
 import type {
   Division,
+  IntroResult,
   Slot,
   Admission,
   Me,
@@ -105,6 +106,8 @@ export function createSchoolHttp(opts: HttpOptions) {
       call<{ status: 'pending' | 'waitlisted' }>('POST', '/v1/me/re-enroll', { key, body: { schoolRulesVersion } }),
     withdraw: (key: string) => call<{ status: 'dropped' }>('POST', '/v1/me/withdraw', { key }),
     /** 换学部、时段：两个都要填，不换的填原来的。在读的学生马上离开原来的班，下一个整点分进新班。 */
+    /** 交自我介绍（规整后最多 200 字，空的是删掉）。学校用词库审，不过回 invalid_intro；一天最多 5 次。 */
+    intro: (key: string, intro: string) => call<IntroResult>('PATCH', '/v1/me/intro', { key, body: { intro } }),
     move: (key: string, division: Division, slot: Slot) =>
       call<{ status: 'active' | 'pending' | 'waitlisted'; division: Division; slot: Slot; moved: boolean }>('PATCH', '/v1/me/placement', { key, body: { division, slot } }),
     summaries: (key: string, limit = 7) => call<{ summaries: (Summary & { sessionId: number })[] }>('GET', '/v1/me/summaries', { key, query: { limit } }),
