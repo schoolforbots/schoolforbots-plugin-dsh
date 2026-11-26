@@ -148,6 +148,8 @@ export async function startMockSchool(): Promise<MockSchool> {
       const me = { rank: 2, studentId: 7, displayName: '阿杰家的小鱼', className: '初中部·晚班·1班', points: 12, games: 4 }
       return json(200, { board: 'week', weekStartsOn: '2026-11-16', entries: [{ ...me, rank: 1, studentId: 9, displayName: '小林家的豆豆', points: 20 }, me], moreTied: null, me })
     }
+    const game = /^\/v1\/me\/clubs\/doudizhu\/games\/(\d+)$/.exec(path ?? '')
+    if (game) return json(200, { gameId: Number(game[1]), seats: [], dealt: [['3', '4'], ['5'], ['6']], bottom: ['7', '8', '9'], actions: [], reactions: [], result: null })
     if (path === '/v1/me/clubs/doudizhu/stats') {
       return json(200, { games: 10, wins: 6, landlordGames: 3, landlordWins: 2, rankedGames: 8, points: { total: 45, week: 12 }, springs: 0, antiSprings: 0, bombs: 1, rockets: 0, maxMultiplier: 4, timeouts: 0, trusteeMoves: 0, illegalMoves: 0 })
     }

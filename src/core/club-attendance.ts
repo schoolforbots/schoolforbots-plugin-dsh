@@ -7,6 +7,7 @@ import { ClubTable, type ClubTableDeps } from './club-table.js'
 import { SchoolError, type SchoolHttp } from './http.js'
 import type { Me, PluginInfo, SchoolCalendar } from './protocol.js'
 import { atLocal, zoneOffsetMinutes } from './timetable.js'
+import type { LinkEndInfo } from './replay.js'
 
 export type ClubPhase = 'starting' | 'off' | 'not-eligible' | 'closed' | 'waiting' | 'playing' | 'done-today' | 'maintenance' | 'offline' | 'stopped'
 
@@ -46,6 +47,8 @@ export interface ClubAttendanceDeps {
   onNotMember?: (message: string) => void
   onStatus?: (s: ClubStatus) => void
   onAlert?: (text: string) => void
+  /** 完整对局记录：连接上收发的每条消息、连接断开。一局一局怎么切由 table 的 onGame 管。 */
+  recorder?: { tap: (dir: 'in' | 'out', frame: unknown) => void; linkEnded: (end: LinkEndInfo) => void }
   now?: () => number
   random?: () => number
   log?: (msg: string) => void
@@ -265,6 +268,7 @@ export class ClubAttendance {
         plugin: this.d.plugin,
         resume: this.d.loadResume(),
         onMessage: (m) => table.handle(m),
+        ...(this.d.recorder ? { tap: this.d.recorder.tap } : {}),
       })
       const table = new ClubTable({
         ...this.d.table(today),
@@ -284,6 +288,7 @@ export class ClubAttendance {
       this.table = table
       this.set('playing', '在社团打牌')
       const end: ClubLinkEnd = await link.ended
+      this.d.recorder?.linkEnded({ code: end.code, closing: end.closing, unauthorized: end.unauthorized })
       if (end.welcomed) failures = 0
       table.stop()
       this.link = null

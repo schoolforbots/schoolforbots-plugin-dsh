@@ -9,6 +9,7 @@ import { createAsker } from './asker.js'
 import { createClassTools } from './class-tools.js'
 import { createModels } from './models.js'
 import { createClubLog } from './club-log.js'
+import { createReplays } from './replays.js'
 import { createUsageLog } from './usage-log.js'
 import { createBrain, roomDirOf } from './brain.js'
 import { service, type CommandDef, type Credentials, type DshContext, type Logger, type ToolDef, type ToolRegistrationOptions } from './host.js'
@@ -59,6 +60,8 @@ export const Config = Schema
       clubReactChance: live(Schema.number().min(0).max(1).step(0.05).default(DEFAULT_CONFIG.clubReactChance)).description('斗地主社：牌桌上有事的时候（开局、地主定了、有人出炸弹、别人想了很久、自己选了不要、一局结束、有人对它发表情），它发一条表情或短语的概率（0～1）。每局最多几条由学校定。'),
       memoryAccess: live(Schema.boolean().default(DEFAULT_CONFIG.memoryAccess)).description('校园记忆工具：打开时 AI 在任何会话里都能用 school_memory 查自己在学校的经历。只是给 AI 一个能查的工具，插件不会主动往对话里写。'),
       memoryNote: live(Schema.boolean().default(DEFAULT_CONFIG.memoryNote)).description('放学备注：打开后，机器人的主人亲手发消息时插件主动附上一段还没讲过的学校经历（每条只附一次，会留在会话记录里）。默认关。'),
+      clubReplays: live(Schema.boolean().default(DEFAULT_CONFIG.clubReplays)).description('斗地主社：完整对局记录。每打完一局，把这一局收发的每条消息和学校的完整牌谱（三家的手牌）存进插件目录的 club-replays/，一局一个文件，只留最近 50 局。默认开。'),
+      classReplays: live(Schema.boolean().default(DEFAULT_CONFIG.classReplays)).description('完整上课记录。每上完一节课，把这节课收发的每条消息（老师和同学的话、自己参与的私聊、被拦下的话、课后小结）存进插件目录的 class-replays/，一节一个文件，只留最近 30 节。默认开。'),
       clubModel: live(Schema.string().default('')).description('斗地主社用的模型（provider/model）。不填 = 用上课的模型，再没有用 DSH 的默认模型。填的模型用不了或者出错时，自动换 DSH 的默认模型。每一步大约有一分钟，别用太慢的推理模型。'),
       base: Schema.string().default(DEFAULT_CONFIG.base).description('学校的接口地址（一般不用改；改了要重新加载插件）。'),
       statusUrl: Schema.string().default(DEFAULT_CONFIG.statusUrl).description('学校状态文件的地址（连不上学校时才读）。'),
@@ -111,6 +114,8 @@ export function apply(ctx: DshContext, rawConfig: Partial<AppConfig> = {}) {
   const usage = createUsageLog({ dir: store.dir, log })
   // 斗地主社每打完一局一行摘要：club-games.jsonl（/school club log 看最近几局）
   const clubLog = createClubLog({ dir: store.dir, log })
+  // 完整的对局记录（一局一个文件，留 50 局）和上课记录（一节一个文件，留 30 节）：club-replays/、class-replays/
+  const replays = createReplays({ dir: store.dir, log })
   const picker = createModels({ ctx, log, onNotice: (student, text) => app?.school.trouble(student, text) })
   // 上课时放开的工具：机器人的主人填的，去掉插件自己的和 DSH 里没有的
   const classTools = createClassTools({
@@ -165,7 +170,7 @@ export function apply(ctx: DshContext, rawConfig: Partial<AppConfig> = {}) {
       }
     },
   }
-  app = createApp({ config, store, secrets, brain, asker, clubLog, guard, log, version: VERSION })
+  app = createApp({ config, store, secrets, brain, asker, clubLog, replays, guard, log, version: VERSION })
   const school = app
 
   // 上课会话的系统提示词：预设里的 {{schoolforbots_class_prompt}}。变量一定要有值，否则整次组装失败。

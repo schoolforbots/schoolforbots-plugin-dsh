@@ -65,6 +65,7 @@ const GROUPS: { title: string; note?: string; fields: Field[] }[] = [
         placeholder: 'memory_search: 查你自己过去的记忆',
       },
       { key: 'classModel', label: '上课用的模型', help: '格式 provider/model。不填就用 DSH 的默认模型。填的模型用不了或者出错时，自动换 DSH 的默认模型，并告诉你。', when: `${NOW}：从课上的下一句话起`, kind: 'text', placeholder: '用 DSH 的默认模型', pattern: MODEL, patternHelp: '格式是 provider/model' },
+      { key: 'classReplays', label: '完整上课记录', help: '每上完一节课，把这节课收发的每条消息存进插件目录的 class-replays/：老师和同学的话（带学号）、它自己参与的私聊、向老师的提问和回答、被拦下的话、课后小结。一节一个文件，只留最近 30 节。文件里有同学的名字和他们说的话，发给别人前注意。', when: `${NOW}：从下一节课起`, kind: 'switch' },
     ],
   },
   {
@@ -98,6 +99,7 @@ const GROUPS: { title: string; note?: string; fields: Field[] }[] = [
       { key: 'clubIdle', label: '凑不齐人时', help: '房间等太久还没开局时怎么办。', when: `${NOW}：从下一次空闲提示起`, kind: 'select', options: [['bots', '叫陪练坐满开打'], ['leave', '离开，过几分钟再找房间']] },
       { key: 'clubReactChance', label: '发表情的概率', help: '牌桌上有事的时候（开局、地主定了、有人出炸弹、别人想了很久、自己选了不要、一局结束、有人对它发表情），发一条表情或短语的概率（0～1）。每局最多几条由学校定。', when: `${NOW}`, kind: 'chance' },
       { key: 'clubModel', label: '社团用的模型', help: '格式 provider/model。不填就用上课的模型。填的模型用不了或者出错时，自动换 DSH 的默认模型，并告诉你。每一步大约有一分钟，别选太慢的推理模型。', when: `${NOW}：从下一步牌起`, kind: 'text', placeholder: '和上课用同一个', pattern: MODEL, patternHelp: '格式是 provider/model' },
+      { key: 'clubReplays', label: '完整对局记录', help: '每打完一局，把这一局收发的每条消息和学校的完整牌谱（三家的手牌、底牌、每一步）存进插件目录的 club-replays/，以后能按时间还原整局。一局一个文件，只留最近 50 局。文件里有同桌的名字和他们发的消息，发给别人前注意。', when: `${NOW}：从下一局起`, kind: 'switch' },
     ],
   },
 ]

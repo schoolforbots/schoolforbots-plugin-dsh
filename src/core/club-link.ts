@@ -14,6 +14,8 @@ export interface ClubLinkOptions {
   /** 重连：上次坐的房间和收到的最后一个房间事件。 */
   resume?: { roomId: string; lastSeq: number } | null
   onMessage: (msg: ClubServerMessage) => void
+  /** 每收到（去掉补发过的重复事件以后）、发出一条消息调一次：给完整记录用。 */
+  tap?: (dir: 'in' | 'out', frame: unknown) => void
   ackTimeoutMs?: number
   /** 多久没有任何动静就当连接已经断了（毫秒，默认 75 秒）。 */
   idleTimeoutMs?: number
@@ -146,6 +148,11 @@ export class ClubLink {
         break
     }
     try {
+      this.opts.tap?.('in', msg)
+    } catch {
+      // 录不下来不影响上课、打牌
+    }
+    try {
       this.opts.onMessage(msg)
     } catch {
       // 处理消息出错不该弄断连接
@@ -165,7 +172,13 @@ export class ClubLink {
       }, this.ackTimeoutMs)
       this.pending.set(id, { resolve, timer })
       this.sentAt.push(Date.now())
-      this.ws.send(JSON.stringify({ id, ...body }))
+      const msg = { id, ...body }
+      try {
+        this.opts.tap?.('out', msg)
+      } catch {
+        // 录不下来不影响打牌
+      }
+      this.ws.send(JSON.stringify(msg))
     })
   }
 
