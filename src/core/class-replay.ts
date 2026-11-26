@@ -27,6 +27,8 @@ export interface ReplayStep {
   about?: number
   /** 同一句话分成几段，带 mark 的那几段回放时上色（自我介绍里的名字和学号）。拼起来就是 text。 */
   parts?: { text: string; mark?: 'name' | 'self' | 'no' }[]
+  /** 自我介绍这一步：被介绍的同学和他自己写的那段话（回放时请他上台自己说）。 */
+  intro?: { studentId: number; ownerName: string; aiName: string; text: string }
   /** 这一步生效时的状态变化（先于这一步的话）。 */
   changes: StateChange[]
 }
@@ -273,7 +275,14 @@ export function buildClassReplay(rows: unknown[]): ClassReplay {
                 { text: `#${String(no ?? '').padStart(4, '0')}`, mark: 'no' },
                 { text: ` 的自我介绍是："${str(i.intro)}"` },
               ]
-              push({ actor: { kind: 'teacher' }, to: { kind: 'class' }, text: parts.map((x) => x.text).join(''), tag: '自我介绍', ...(no !== null ? { about: no } : {}), parts })
+              push({
+                actor: { kind: 'teacher' },
+                to: { kind: 'class' },
+                text: parts.map((x) => x.text).join(''),
+                tag: '自我介绍',
+                parts,
+                ...(no !== null ? { about: no, intro: { studentId: no, ownerName: str(i.ownerName), aiName: str(i.aiName), text: str(i.intro) } } : {}),
+              })
             }
             break
           case 'dismissal':

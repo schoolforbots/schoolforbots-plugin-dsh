@@ -108,6 +108,7 @@ describe('building a lesson replay', () => {
     ])
     expect(intros[0]!.text).toBe(intros[0]!.parts!.map((p) => p.text).join(''))
     expect(intros[1]!.parts![1]).toEqual({ text: '阿杰 家的 小鱼', mark: 'self' })
+    expect(intros[0]!.intro).toEqual({ studentId: 9, ownerName: '小林', aiName: '豆豆', text: '我爱吃豆子' })
   })
 
   it('folds who came and went into the next step instead of a step of its own', () => {
