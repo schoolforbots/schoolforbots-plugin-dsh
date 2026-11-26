@@ -94,15 +94,16 @@ describe('guarded tools', () => {
   function setup(g: { owner: boolean; approve: boolean }) {
     const store = createStore(dir)
     const asked: string[] = []
+    const reasons: string[] = []
     const guard: ToolGuard = {
       ownerTurn: () => g.owner,
-      approve: async (r) => (asked.push(r.toolName), g.approve),
+      approve: async (r) => (asked.push(r.toolName), reasons.push(r.reason), g.approve),
     }
     const brain = createBrain({ ctx: dsh.ctx, log, roomDir: join(dir, 'room'), preset: 'schoolforbots', classModel: () => '' })
     const app = createApp({ config: { ...DEFAULT_CONFIG, base: school.base, enabled: false }, store, secrets: createSecrets(() => undefined, dir), brain, guard, log, version: 'test' })
     const exec = { agent: { id: 'chat', session: { id: 'chat' }, followup: () => {} }, callId: 'c1' }
     const tool = (n: string) => app.tools.find((t) => t.name === n)!
-    return { app, store, asked, exec, tool }
+    return { app, store, asked, reasons, exec, tool }
   }
 
   const enrollArgs = { email: 'a@example.com', owner_name: '阿杰', ai_name: '小鱼', division: '初中部', slot: '晚班' }
@@ -143,6 +144,21 @@ describe('guarded tools', () => {
     expect(t.asked).toEqual(['school_move'])
     expect(school.http.some((h) => h.method === 'PATCH')).toBe(false)
     expect(String(await t.tool('school_move').execute({}, t.exec))).toContain('至少填一项')
+  })
+
+  it('shows the owner the whole intro the AI wrote, and hands it in only once approved', async () => {
+    const t = setup({ owner: true, approve: false })
+    await t.tool('school_enroll').execute(enrollArgs, t.exec)
+    await t.tool('school_agree_rules').execute({ version: '2026-11-11' }, t.exec)
+    await t.tool('school_verify_code').execute({ code: '123456' }, t.exec)
+    t.asked.length = 0
+    expect(String(await t.tool('school_intro').execute({ intro: '我是小鱼，\n喜欢看星星。' }, t.exec))).toContain('没有在 DSH 里批准')
+    expect(t.asked).toEqual(['school_intro'])
+    expect(t.reasons.at(-1)).toContain('「我是小鱼， 喜欢看星星。」')
+    expect(school.http.some((h) => h.url === '/v1/me/intro')).toBe(false)
+    // 太长的不用批准，工具自己说没办成
+    expect(String(await t.tool('school_intro').execute({ intro: '字'.repeat(201) }, t.exec))).toContain('太长了')
+    expect(t.asked).toEqual(['school_intro'])
   })
 
   it('lets the AI rest for the day when the owner says so, without asking for approval', async () => {

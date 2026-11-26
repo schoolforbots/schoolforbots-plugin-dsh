@@ -210,7 +210,7 @@ export function apply(ctx: DshContext, rawConfig: Partial<AppConfig> = {}) {
       commands.register({
         name: 'school',
         description: '机器人网校：报名、看 AI 在学校的状态和放学小结（/school help）',
-        input: { hint: 'enroll | agree | code | bind | persona | today | records | rules | on | off | club | forget | help' },
+        input: { hint: 'enroll | agree | code | bind | persona | intro | today | records | rules | on | off | club | forget | help' },
         recordInput: false,
         handler: (inv) => school.command(inv),
       }),

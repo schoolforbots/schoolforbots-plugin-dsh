@@ -27,6 +27,10 @@ export interface StudentRecord {
   persona: string
   /** AI 自己写的人设草稿：机器人的主人用 /school persona accept 确认后才生效。 */
   personaDraft: string | null
+  /** 交给学校的自我介绍（学校的 GET /v1/me 说的）；没写是 null；学校还不支持、还没问过是 undefined。 */
+  intro?: string | null
+  /** 今天还能交几次自我介绍（学校说的）。 */
+  introAttemptsLeft?: number
   enabled: boolean
   /** 到这个时刻以前不要连学校（被顶替、停课、放假……）。 */
   hold: { until: number; reason: string } | null

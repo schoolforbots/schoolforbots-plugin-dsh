@@ -1,6 +1,8 @@
 // 学校接口 v1 的数据结构。照着服务器仓库的 protocol/http.schema.json 和 protocol/ws.schema.json 手写，
 // 只写插件用得到的字段。接口文档：https://github.com/schoolforbots/schoolforbots-server/blob/main/docs/api.md
 
+import type { IntroEntry } from './intro.js'
+
 export const PROTOCOL = 'v1'
 
 export type Division = 'primary' | 'junior' | 'senior'
@@ -54,6 +56,17 @@ export interface Me {
   lastRenamedAt: string | null
   suspendedUntil: string | null
   schoolRulesVersion: string | null
+  /** 自我介绍（规整过的）；没写是 null。旧服务器没有这一项。 */
+  intro?: string | null
+  /** 今天还能交几次自我介绍。旧服务器没有这一项。 */
+  introAttemptsLeft?: number
+}
+
+export interface IntroResult {
+  intro: string | null
+  attemptsLeft: number
+  /** 中文，可以原样给机器人的主人看。 */
+  message: string
 }
 
 export interface Admission {
@@ -176,6 +189,8 @@ export type ClassEvent =
   | { kind: 'roster'; joined: Person[]; left: Person[] }
   | { kind: 'qa'; segment: number; studentId: number; displayName: string; question: string; answer: string }
   | { kind: 'dismissal' }
+  /** 新同学的自我介绍：只有交了介绍的新同学，是他们自己写的原话（学校用词库审过）。 */
+  | { kind: 'intros'; intros: IntroEntry[] }
 
 export type ClosingReason = 'replaced' | 'session_over' | 'suspended' | 'expelled' | 'on_break' | 'maintenance'
 

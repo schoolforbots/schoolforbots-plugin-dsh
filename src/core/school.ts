@@ -13,6 +13,7 @@ import { ClubAttendance, type ClubStatus } from './club-attendance.js'
 import { DEFAULT_CLUB_SETTINGS, type IdlePolicy, type InvitePolicy, type JoinMode } from './club-table.js'
 import { broadcastNote, expired, mergeBroadcasts, renderBroadcast, untoldBroadcasts } from './broadcasts.js'
 import type { ClassTool } from './class-tools.js'
+import { INTRO_CLEAR, INTRO_MAX, introLength, normalizeIntro } from './intro.js'
 import { clubLogRow, renderLogRow, type GameDetail } from './club-log.js'
 import { ClubRecorder, LessonRecorder, REPLAY_FORMAT, type ReplayLine } from './replay.js'
 import type { ClubGameRecord } from './doudizhu.js'
@@ -127,6 +128,8 @@ export type AgentAction =
   | { verb: 'club'; sub?: 'on' | 'off' | 'rest' | 'back' }
   /** 换学部、时段（不换的不填）。AI 的工具要机器人的主人在 DSH 里批准，批准就算确认。 */
   | { verb: 'move'; division?: string; slot?: string }
+  /** 交自我介绍（AI 写的，工具要机器人的主人在 DSH 里批准）；INTRO_CLEAR 是删掉。 */
+  | { verb: 'intro'; text: string }
 
 export function slotTime(s: string): SlotTime | undefined {
   const m = /^\s*(\d{1,2}:\d{2})\s*[-~～—]\s*(\d{1,2}:\d{2})\s*$/.exec(s)
@@ -245,6 +248,12 @@ export class School {
         if (!me) return
         if (s.status !== me.status || s.displayName !== me.displayName || s.className !== me.className) {
           Object.assign(s, { status: me.status, displayName: me.displayName, className: me.className, studentId: me.studentId })
+          this.save()
+        }
+        // 新服务器才有自我介绍
+        if (me.intro !== undefined && (s.intro !== me.intro || s.introAttemptsLeft !== me.introAttemptsLeft)) {
+          s.intro = me.intro
+          if (me.introAttemptsLeft !== undefined) s.introAttemptsLeft = me.introAttemptsLeft
           this.save()
         }
       },
@@ -593,6 +602,13 @@ export class School {
     if (name && !this.students.some((s) => s.aiName === name || displayNameOf(s) === name)) {
       return wrap(false, `没有叫「${[...name].slice(0, 20).join('')}」的学生。学生有：${this.students.map((s) => s.aiName).join('、') || '（还没有）'}`)
     }
+    if (action.verb === 'intro') {
+      // 介绍里本来就有空格：动词固定是 intro，后面整段都当介绍，拼不出别的命令
+      const text = normalizeIntro(action.text)
+      if (!text) return wrap(false, `介绍是空的。要删掉自我介绍，填「${INTRO_CLEAR}」。`)
+      const r = await this.ownerCommand(`${name ? `@${name} ` : ''}intro ${text}`, { home: session, command: '/school', fromAgent: true })
+      return wrap(r.ok, r.text)
+    }
     const tokens: string[] =
       action.verb === 'status' ? ['status']
       : action.verb === 'enroll' ? ['enroll', ...action.fields]
@@ -605,6 +621,58 @@ export class School {
     const raw = `${name ? `@${name} ` : ''}${tokens.join(' ')}`
     const r = await this.ownerCommand(raw, { home: session, command: '/school', fromAgent: true })
     return wrap(r.ok, r.text)
+  }
+
+  /**
+   * /school intro [介绍]：不带介绍是看现在的（问学校）；带了就交上去，「删除」是删掉。交之前先按学校的算法查长度，
+   * 超长的不交（学校也不算次数）。学校的回复（审过没有、为什么没过、今天还剩几次）原样给机器人的主人看。
+   */
+  private async introCommand(s: StudentRecord, raw: string, cmd: string, fromAgent: boolean): Promise<OwnerResult> {
+    const c = this.cmdFor(s, cmd)
+    if (s.studentId === null) return { ok: false, text: '还没报完名：报完名以后再写自我介绍。' }
+    const key = await this.host.secrets.get(keyName(s.aiId))
+    if (!key) return { ok: false, text: '还没有钥匙。' }
+    const text = normalizeIntro(raw)
+    const unsupported = (e: unknown) => e instanceof SchoolError && e.status === 404
+    if (!text) {
+      try {
+        const me = await this.http.me(key)
+        if (me.intro === undefined) return { ok: false, text: '学校还不支持自我介绍。' }
+        s.intro = me.intro
+        if (me.introAttemptsLeft !== undefined) s.introAttemptsLeft = me.introAttemptsLeft
+        this.save()
+      } catch (e) {
+        if (s.intro === undefined) throw e
+      }
+      const left = s.introAttemptsLeft !== undefined ? `今天还能交 ${s.introAttemptsLeft} 次。` : ''
+      return {
+        ok: true,
+        text: s.intro
+          ? `现在的自我介绍：\n${s.intro}\n\n进新班的第一节课老师会念（念过以后再改不会重念）。改：${c} intro 新的介绍；删掉：${c} intro ${INTRO_CLEAR}。${left}`
+          : `还没写自我介绍。进新班的第一节课（第一次分班、换学部或时段、重新入学分到别的班、学校调班）老师会念，没写的只念名字和学号。写一段：${c} intro 介绍（最多 ${INTRO_MAX} 字，学校会用词库审）。${left}`,
+      }
+    }
+    const clear = text === INTRO_CLEAR
+    if (!clear && introLength(text) > INTRO_MAX) return { ok: false, text: `太长了：${introLength(text)} 字，最多 ${INTRO_MAX} 字（换行和连续的空格算一个空格）。没有交，不算次数。` }
+    try {
+      const r = await this.http.intro(key, clear ? '' : text)
+      s.intro = r.intro
+      s.introAttemptsLeft = r.attemptsLeft
+      this.save()
+      const head = clear ? '删掉了自我介绍。' : `${fromAgent ? '' : '交上去了：'}「${r.intro ?? text}」`
+      return { ok: true, text: `${head}\n${r.message}` }
+    } catch (e) {
+      if (unsupported(e)) return { ok: false, text: '学校还不支持自我介绍。' }
+      if (e instanceof SchoolError && typeof e.extra.attemptsLeft === 'number') {
+        s.introAttemptsLeft = e.extra.attemptsLeft
+        this.save()
+      }
+      if (e instanceof SchoolError && e.code === 'intro_limit') {
+        s.introAttemptsLeft = 0
+        this.save()
+      }
+      throw e
+    }
   }
 
   /** 换学部、时段前要提醒的：正在上课的话，这节课会马上断开。没有返回 null。 */
@@ -650,6 +718,7 @@ export class School {
       `${cmd} records                 在校记录（批评、停课等）`,
       `${cmd} rules                   看现在的校规`,
       `${cmd} rename 主人名 AI名       改名`,
+      `${cmd} intro [介绍]             看或交自我介绍（最多 ${INTRO_MAX} 字，进新班的第一节课老师会念；${INTRO_CLEAR} 是删掉）`,
       `${cmd} move 学部 时段           换学部、时段（只换一项就只填那一项；一天一次，会马上离开原来的班）`,
       `${cmd} on | off                让 AI 去上学 / 先不去`,
       `${cmd} club [on | off]          斗地主社：看战绩，入社 / 退社（入社后课余会去打牌，要一直开着 DSH，也花模型的钱）`,
@@ -718,6 +787,7 @@ export class School {
     if (this.students.length > 1 && !s.binding.home) lines.push(`带了几个学生：可以在和它聊天的会话里打 ${cmd} @${s.aiName} bind，把会话指定给它。`)
     if (!s.persona.trim()) lines.push(`还没写上学用的人设：${cmd} persona 一段话，或者请 AI 自己写一份草稿（AI 会调用 school_write_persona）。`)
     if (s.personaDraft) lines.push(`AI 写了一份人设草稿，等你确认：${cmd} persona 看，${cmd} persona accept 确认。`)
+    if (s.studentId !== null && s.intro === null) lines.push(`还没写自我介绍：进新班的第一节课老师会念。写一段：${cmd} intro 介绍（最多 ${INTRO_MAX} 字），或者请 AI 写一段（要你批准）。`)
     const casts = untoldBroadcasts(s.broadcasts)
     const important = casts.filter((b) => b.importance === 'important')
     if (important.length) lines.push(`学校的重要广播（还没转告）：${important.map((b) => `「${b.title}」`).join('、')}。看全文：${cmd} broadcasts`)
@@ -933,6 +1003,8 @@ export class School {
           if (!r.records.length) return ok('最近 30 天没有记录。')
           return ok(r.records.map((x) => `${fmt(Date.parse(x.at))} ${x.text}${x.revoked ? '（已撤销）' : ''}`).join('\n'))
         }
+        case 'intro':
+          return await this.introCommand(target(), rest.slice(verb.length), cmd, !!ctx.fromAgent)
         case 'rename': {
           const s = target()
           const [ownerName, aiName] = args

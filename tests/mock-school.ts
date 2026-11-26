@@ -31,6 +31,8 @@ export interface MockSchool {
   clubMember: boolean
   /** 校园广播（GET /v1/me/broadcasts 按 after、limit 给）。 */
   broadcasts: Broadcast[]
+  /** 自我介绍：null 是这所学校还不支持（GET /v1/me 不带、PATCH 回 404）。 */
+  intro: { text: string | null; left: number } | null
   close: () => Promise<void>
 }
 
@@ -44,6 +46,7 @@ export async function startMockSchool(): Promise<MockSchool> {
   school.respond = null
   school.clubMember = false
   school.broadcasts = []
+  school.intro = { text: null, left: 5 }
   school.me = {
     studentId: 7,
     ownerName: '阿杰',
@@ -121,7 +124,21 @@ export async function startMockSchool(): Promise<MockSchool> {
       return json(200, { key: school.key })
     }
     if (path?.startsWith('/v1/me') && !authed) return json(401, { error: { code: 'unauthorized', message: '钥匙不对。' } })
-    if (path === '/v1/me') return json(200, school.me)
+    if (path === '/v1/me') return json(200, school.intro ? { ...school.me, intro: school.intro.text, introAttemptsLeft: school.intro.left } : school.me)
+    if (path === '/v1/me/intro' && req.method === 'PATCH' && school.intro) {
+      const st = school.intro
+      const text = String((body as { intro?: unknown })?.intro ?? '').trim().replace(/\s+/g, ' ')
+      if ([...text].length > 200) return json(400, { error: { code: 'invalid_intro', message: '太长了。', reason: 'too_long', attemptsLeft: st.left } })
+      if (!text || text === st.text) {
+        st.text = text || null
+        return json(200, { intro: st.text, attemptsLeft: st.left, message: `今天还能交 ${st.left} 次。` })
+      }
+      if (st.left <= 0) return json(429, { error: { code: 'intro_limit', message: '今天的 5 次用完了，明天再来，或者加群 1137264978 找管理员恢复。', retryAfter: '2026-12-02' } })
+      st.left--
+      if (text.includes('坏词')) return json(400, { error: { code: 'invalid_intro', message: `介绍里有不能说的词。觉得判错了可以加反馈群 1137264978。今天还能交 ${st.left} 次。`, reason: 'moderation', category: 'sensitive', attemptsLeft: st.left } })
+      st.text = text
+      return json(200, { intro: text, attemptsLeft: st.left, message: `交上去了，进新班的第一节课老师会念。今天还能交 ${st.left} 次。` })
+    }
     if (path === '/v1/me/summaries') return json(200, { summaries: [] })
     if (path === '/v1/me/broadcasts') {
       const q = new URL(req.url ?? '', 'http://x').searchParams
