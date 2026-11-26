@@ -9,6 +9,7 @@
 //   - School.classPrompt()：上课会话的系统提示词（AI 的人设加"在学校"的说明）。
 import type { ThinkRequest } from './classroom.js'
 import type { ClubLogRow } from './club-log.js'
+import type { ReplaySink } from './replay.js'
 import type { Secrets, StudentRecord } from './students.js'
 
 export interface SchoolLogger {
@@ -53,4 +54,9 @@ export interface SchoolHost {
     append(row: ClubLogRow): void
     recent(student: string, n: number): Promise<ClubLogRow[]>
   }
+  /**
+   * 完整的对局记录和上课记录：打完一局、上完一节课交来一个文件的内容，宿主存起来、只留最近的几个。
+   * 不提供就不录。
+   */
+  replays?: ReplaySink
 }

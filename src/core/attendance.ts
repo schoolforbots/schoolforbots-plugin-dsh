@@ -5,6 +5,7 @@ import { Classroom, type ClassroomDeps } from './classroom.js'
 import { readStatusFile, SchoolError, type SchoolHttp } from './http.js'
 import type { Me, PluginInfo, SchoolCalendar, Summary } from './protocol.js'
 import { atLocal, nextLesson, zoneOffsetMinutes, type LessonWindow, type TimetableOptions } from './timetable.js'
+import type { LinkEndInfo } from './replay.js'
 
 /** 学校时区里某一天的零点。时区不认识就按北京时间。 */
 export function schoolMidnight(date: string, timeZone?: string | null): number {
@@ -70,6 +71,8 @@ export interface AttendanceDeps {
   saveHold?: (h: Hold | null) => void
   /** 已经存下的小结编号，用来补拉下课时没收到的小结。 */
   knownSummaries: () => number[]
+  /** 完整上课记录：每节课开始时要一个录制器，这节课结束时（下课、被断开不再回来、插件停了）调 done。不提供或返回 null 就不录。 */
+  recorder?: (lesson: LessonWindow) => { tap: (dir: 'in' | 'out', frame: unknown) => void; linkEnded: (end: LinkEndInfo) => void; done: () => void } | null
   timetable?: () => TimetableOptions
   now?: () => number
   random?: () => number
@@ -251,6 +254,7 @@ export class Attendance {
     let resume = saved && saved.date === win.date ? { sessionId: saved.sessionId, lastSeq: 0 } : null
     const room = new Classroom({ ...this.d.classroom(win), send: (m) => this.link?.send(m) ?? Promise.resolve({ type: 'ack', id: '', ok: false, error: { code: 'disconnected', message: '' } }), onSummary: (s, id) => this.d.onSummary(s, id) })
     let failures = 0
+    const rec = this.d.recorder?.(win) ?? null
     try {
       while (!this.stopped) {
         this.set('in-class', '在上课', { nextLessonAt: win.startsAt })
@@ -261,9 +265,11 @@ export class Attendance {
           maxRounds: this.d.maxRounds(),
           resume,
           onMessage: (m) => room.handle(m),
+          ...(rec ? { tap: rec.tap } : {}),
         })
         this.link = link
         const end: LinkEnd = await link.ended
+        rec?.linkEnded({ code: end.code, closing: end.closing, unauthorized: end.unauthorized })
         if (end.welcomed) failures = 0
         this.link = null
         // 插件已经停了（卸载、热重载）：不再写存档，免得把旧的状态写回去
@@ -346,6 +352,11 @@ export class Attendance {
       }
     } finally {
       room.stop()
+      try {
+        rec?.done()
+      } catch {
+        // 存不下来不影响上学
+      }
     }
   }
 

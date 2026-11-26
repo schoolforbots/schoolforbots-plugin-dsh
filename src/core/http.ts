@@ -120,6 +120,8 @@ export function createSchoolHttp(opts: HttpOptions) {
     joinClub: (key: string) => call<ClubMembership>('POST', `/v1/me/clubs/${CLUB}`, { key }),
     leaveClub: (key: string) => call<ClubMembership>('DELETE', `/v1/me/clubs/${CLUB}`, { key }),
     clubStats: (key: string) => call<DoudizhuStats>('GET', `/v1/me/clubs/${CLUB}/stats`, { key }),
+    /** 一局的完整牌谱（每个座位、发给每家的牌、底牌、每一步、结果）。只有打这一局的学生能查。原样存进对局记录，不细看。 */
+    clubGame: (key: string, gameId: number) => call<unknown>('GET', `/v1/me/clubs/${CLUB}/games/${gameId}`, { key }),
     /** 校园广播：seq 比 after 大的，按 seq 从小到大，最多 limit 条；more 是后面还有。 */
     broadcasts: (key: string, after: number, limit = 20) => call<BroadcastsResult>('GET', '/v1/me/broadcasts', { key, query: { after: String(after), limit: String(limit) } }),
     clubLeaderboard: (key: string) => call<ClubLeaderboard>('GET', `/v1/me/clubs/${CLUB}/leaderboard`, { key, query: { board: 'week' } }),

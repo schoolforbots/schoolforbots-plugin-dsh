@@ -13,7 +13,9 @@ import { ClubAttendance, type ClubStatus } from './club-attendance.js'
 import { DEFAULT_CLUB_SETTINGS, type IdlePolicy, type InvitePolicy, type JoinMode } from './club-table.js'
 import { broadcastNote, expired, mergeBroadcasts, renderBroadcast, untoldBroadcasts } from './broadcasts.js'
 import type { ClassTool } from './class-tools.js'
-import { clubLogRow, renderLogRow } from './club-log.js'
+import { clubLogRow, renderLogRow, type GameDetail } from './club-log.js'
+import { ClubRecorder, LessonRecorder, REPLAY_FORMAT, type ReplayLine } from './replay.js'
+import type { ClubGameRecord } from './doudizhu.js'
 import { DEFAULT_CLASS_SETTINGS } from './classroom.js'
 import { addClubGame, addNotice, addSummary, clubDigest, clubGamesOn, markTold, memoryQuery, schoolNote, type MemoryQuery, schoolReport, untold, untoldGames, untoldNotices } from './diary.js'
 import type { SchoolHost } from './host.js'
@@ -46,6 +48,8 @@ const LOG_MAX = 20
 const CAST_FIRST_MS = 20_000
 const CAST_EVERY_MS = 30 * 60_000
 const CAST_MAX_PAGES = 5
+/** 取一局的完整牌谱失败后，第 n 次重试前等 n 倍这么久。 */
+const REPLAY_RETRY_MS = 60_000
 
 export interface SchoolConfig {
   /** 学校的地址，比如 https://api.schoolforbots.org */
@@ -69,6 +73,10 @@ export interface SchoolConfig {
   memoryAccess: boolean
   /** 放学备注：开着时，机器人的主人亲手发消息时插件主动附上没讲过的学校经历。默认关。 */
   memoryNote: boolean
+  /** 完整对局记录：每局存一个文件（宿主提供 replays 时）。默认开。 */
+  clubReplays: boolean
+  /** 完整上课记录：每节课存一个文件（宿主提供 replays 时）。默认开。 */
+  classReplays: boolean
 }
 
 export const DEFAULT_SCHOOL_CONFIG: SchoolConfig = {
@@ -89,6 +97,8 @@ export const DEFAULT_SCHOOL_CONFIG: SchoolConfig = {
   clubReactChance: DEFAULT_CLUB_SETTINGS.reactChance,
   memoryAccess: true,
   memoryNote: false,
+  clubReplays: true,
+  classReplays: true,
 }
 
 /** 机器人的主人操作的结果：文字直接给机器人的主人看。 */
@@ -250,6 +260,19 @@ export class School {
         this.save()
       },
       knownSummaries: () => s.diary.summaries.map((x) => x.sessionId),
+      recorder: (win) => {
+        const sink = this.host.replays
+        if (!sink || !this.cfg.classReplays) return null
+        const rec = new LessonRecorder({})
+        return {
+          tap: rec.tap,
+          linkEnded: (end) => rec.linkEnded(end),
+          done: () => {
+            const file = rec.finish({ date: win.date, studentId: s.studentId })
+            if (file) sink.save({ ...file, student: s.aiId })
+          },
+        }
+      },
       log: (m) => this.host.log.info(`[${s.aiName}] ${m}`),
     })
     this.runners.set(s.aiId, att)
@@ -270,6 +293,7 @@ export class School {
     if (this.clubRunners.has(s.aiId) || !this.host.ask) return
     const ask = this.host.ask.bind(this.host)
     const tag = `[${s.aiName} · 社团]`
+    const rec = new ClubRecorder({ enabled: () => !!this.host.replays && this.cfg.clubReplays })
     const club = new ClubAttendance({
       http: this.http,
       clubUrl: this.clubUrl,
@@ -289,6 +313,8 @@ export class School {
           if (!addClubGame(s.diary, g)) return
           this.save()
           this.host.clubLog?.append(clubLogRow(s, g, detail))
+          const { lines, dropped } = rec.cut()
+          if (lines.length) void this.saveClubReplay(s, g, detail, lines, dropped)
         },
         log: (m) => this.host.log.info(tag, m),
       }),
@@ -307,10 +333,63 @@ export class School {
         this.alert(s, `斗地主社：${message}（入社开关已经关上）`)
       },
       onAlert: (text) => this.alert(s, text),
+      recorder: rec,
       log: (m) => this.host.log.info(tag, m),
     })
     this.clubRunners.set(s.aiId, club)
     void club.run()
+  }
+
+  /**
+   * 存一局的完整记录：录下的消息，加上学校的完整牌谱（三家的手牌、底牌、每一步）。牌谱取不到（断网、学校维护）
+   * 过一会儿再试，最多试 3 次；还不行就照样存，最后一行写没取到。
+   */
+  private async saveClubReplay(s: StudentRecord, g: ClubGameRecord, detail: GameDetail, lines: ReplayLine[], dropped: number): Promise<void> {
+    const sink = this.host.replays
+    if (!sink) return
+    let record: unknown = null
+    let error: string | null = null
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt > 0) await new Promise((r) => setTimeout(r, REPLAY_RETRY_MS * attempt).unref?.())
+      if (this.disposed) break
+      try {
+        const key = await this.host.secrets.get(keyName(s.aiId))
+        if (!key) {
+          error = '没有钥匙'
+          break
+        }
+        record = await this.http.clubGame(key, g.gameId)
+        error = null
+        break
+      } catch (e) {
+        error = e instanceof SchoolError ? `${e.code}：${e.message}` : String((e as Error)?.message ?? e)
+        if (e instanceof SchoolError && !e.transient) break
+      }
+    }
+    sink.save({
+      kind: 'club',
+      student: s.aiId,
+      date: g.date,
+      name: `${s.studentId ?? 'x'}-${g.gameId}`,
+      head: {
+        format: REPLAY_FORMAT,
+        kind: 'club',
+        studentId: s.studentId,
+        name: displayNameOf(s),
+        gameId: g.gameId,
+        date: g.date,
+        roomId: detail.roomId,
+        seat: detail.seat,
+        seats: detail.seats,
+        game: g,
+        startedAt: lines[0]?.t ?? null,
+        endedAt: new Date(detail.endedAt).toISOString(),
+        lines: lines.length,
+        dropped,
+      },
+      lines,
+      tail: { kind: 'school-record', record, ...(error ? { error } : {}) },
+    })
   }
 
   private stopClubRunner(aiId: string): void {
