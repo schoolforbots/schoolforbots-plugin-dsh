@@ -85,6 +85,15 @@ describe('building a lesson replay', () => {
     expect(r.steps.at(-1)!.text).toContain('老师说：不错')
   })
 
+  it('marks which classmate an intro or a call-on is about', () => {
+    const rows = sampleLesson()
+    rows.splice(5, 0, { t: at, dir: 'in', msg: { type: 'class.event', seq: 9, replayed: false, at: '', event: { kind: 'called_on', studentId: 8, displayName: '小美家的阿花', questionKind: 'review' } } })
+    const r = buildClassReplay(rows)
+    expect(r.steps.find((s) => s.tag === '自我介绍')!.about).toBe(9)
+    expect(r.steps.find((s) => s.tag === '点名')!.about).toBe(8)
+    expect(r.steps.find((s) => s.tag === '第 1 段')!.about).toBeUndefined()
+  })
+
   it('folds who came and went into the next step instead of a step of its own', () => {
     const r = buildClassReplay(sampleLesson())
     expect(r.steps[2]!.changes).toEqual([{ kind: 'online', studentId: 9, online: true }])

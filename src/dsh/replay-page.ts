@@ -12,7 +12,8 @@ const CSS = `
 * { box-sizing:border-box; }
 html,body { margin:0; height:100%; background:var(--bg); color:var(--ink); font:15px/1.5 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif; }
 #app { display:flex; flex-direction:column; height:100%; }
-#room { flex:1; position:relative; overflow:auto; background:linear-gradient(var(--wall) 0 210px, var(--bg) 210px); padding:18px 24px 40px; }
+#room { flex:1; position:relative; overflow:auto; background:var(--bg); background-attachment:local; }
+#stage { padding:18px 24px 40px; transform-origin:top center; }
 #board { margin:0 auto; max-width:760px; background:var(--board); color:var(--chalk); border:10px solid #7a5a36; border-radius:6px; padding:14px 22px; text-align:center; box-shadow:0 4px 10px rgba(0,0,0,.25); }
 #board h1 { margin:0; font-size:22px; font-weight:600; letter-spacing:1px; }
 #board div { opacity:.85; font-size:14px; margin-top:4px; }
@@ -21,7 +22,8 @@ html,body { margin:0; height:100%; background:var(--bg); color:var(--ink); font:
 .podium { width:150px; height:22px; background:var(--deskdark); border-radius:4px 4px 0 0; margin-top:-6px; }
 .avatar { width:54px; height:54px; border-radius:50%; display:flex; align-items:center; justify-content:center; color:#fff; font-size:22px; font-weight:600; border:3px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,.2); transition:opacity .4s, transform .3s; }
 .teacher .avatar { background:var(--teacher); width:62px; height:62px; }
-.name { margin-top:4px; font-size:13px; max-width:120px; text-align:center; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.name { margin-top:4px; font-size:13px; max-width:120px; text-align:center; line-height:1.3; word-break:break-all; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+.teacher .name { white-space:nowrap; }
 #seats { display:grid; gap:58px 26px; justify-content:center; padding-top:40px; }
 .seat { position:relative; display:flex; flex-direction:column; align-items:center; width:120px; transition:opacity .4s; }
 .seat .avatar { background:var(--mate); }
@@ -29,6 +31,14 @@ html,body { margin:0; height:100%; background:var(--bg); color:var(--ink); font:
 .seat.self .name { color:var(--self); font-weight:600; }
 .seat.offline { opacity:.32; }
 .badge { position:absolute; top:-6px; right:18px; background:var(--self); color:#fff; font-size:11px; padding:0 6px; border-radius:8px; border:2px solid #fff; }
+.no { font-size:11px; color:var(--muted); font-variant-numeric:tabular-nums; }
+#seats.dense { gap:44px 12px; }
+#seats.dense .seat { width:92px; }
+#seats.dense .avatar { width:42px; height:42px; font-size:17px; }
+#seats.dense .desk { width:80px; height:12px; }
+#seats.dense .name { font-size:12px; max-width:92px; }
+#seats.dense .badge { right:8px; }
+#seats.dense .bubble { max-width:230px; font-size:13px; }
 .desk { width:104px; height:16px; background:var(--desk); border-radius:3px; margin-top:6px; box-shadow:0 3px 0 var(--deskdark); }
 .speaking .avatar { transform:scale(1.12); }
 .target .avatar { box-shadow:0 0 0 4px rgba(224,120,47,.35), 0 0 14px rgba(224,120,47,.6); }
@@ -46,7 +56,9 @@ html,body { margin:0; height:100%; background:var(--bg); color:var(--ink); font:
 @keyframes popside { from { opacity:0; transform:translateX(-8px) scale(.94); } to { opacity:1; transform:none; } }
 @keyframes pop { from { opacity:0; transform:translateX(-50%) translateY(8px) scale(.92); } to { opacity:1; transform:translateX(-50%) translateY(0) scale(1); } }
 @media (prefers-reduced-motion: reduce) { *, *::after { animation:none !important; transition:none !important; } }
-#caption { background:#fff; border-top:1px solid #ddd; padding:10px 18px; min-height:64px; max-height:28vh; overflow:auto; white-space:pre-wrap; }
+#card { position:absolute; left:50%; top:262px; transform:translateX(-50%); width:min(92%, 620px); max-height:calc(100% - 290px); min-height:120px; overflow:auto; background:#fffdf7; border:2px solid #b9a57e; border-radius:12px; padding:14px 18px; box-shadow:0 8px 24px rgba(0,0,0,.25); z-index:7; white-space:pre-wrap; animation:pop .35s ease-out; }
+#card h2 { margin:0 0 8px; font-size:16px; }
+#caption { background:#fff; border-top:1px solid #ddd; padding:10px 18px; height:96px; flex:none; overflow:auto; white-space:pre-wrap; }
 #caption .who { font-weight:600; margin-right:6px; }
 #caption .tag { color:var(--muted); font-size:12px; margin-right:6px; }
 #caption .blocked { color:#a33; font-size:13px; display:block; }
@@ -83,8 +95,12 @@ const JS = `
   teacherEl.appendChild(el('div', 'podium'));
   teacherEl.appendChild(el('div', 'name', data.teacher || '老师'));
 
-  var cols = Math.max(1, Math.min(6, Math.ceil(Math.sqrt(data.seats.length * 1.6))));
-  seatsEl.style.gridTemplateColumns = 'repeat(' + cols + ', 120px)';
+  var reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // 人多（超过 40 个）时座位排紧一点，一排最多 12 个
+  var dense = data.seats.length > 40;
+  if (dense) seatsEl.classList.add('dense');
+  var cols = Math.max(1, Math.min(dense ? 12 : 8, Math.ceil(Math.sqrt(data.seats.length * 1.6))));
+  seatsEl.style.gridTemplateColumns = 'repeat(' + cols + ', ' + (dense ? 92 : 120) + 'px)';
   var seatEls = {};
   data.seats.forEach(function (s) {
     var d = el('div', 'seat' + (s.self ? ' self' : ''));
@@ -94,13 +110,34 @@ const JS = `
     var n = el('div', 'name', s.name);
     n.title = s.name;
     d.appendChild(n);
+    d.appendChild(el('div', 'no', no(s.studentId)));
     seatsEl.appendChild(d);
     seatEls[s.studentId] = { box: d, name: n, self: s.self };
   });
 
   progress.max = Math.max(0, steps.length - 1);
 
-  function nameOf(id, names) { return names[id] || ('#' + id); }
+  // 座位多时整个教室按窗口缩小（最多缩到 0.75，再小字就看不清了），一屏看全；再多就滚动，说话的人自动滚进来
+  var stage = document.getElementById('stage');
+  var scale = 1;
+  function fit() {
+    stage.style.transform = '';
+    stage.style.marginBottom = '';
+    var need = stage.scrollHeight, needW = stage.scrollWidth;
+    scale = Math.max(0.75, Math.min(1, (roomEl.clientHeight - 8) / need, (roomEl.clientWidth - 8) / needW));
+    if (scale < 1) {
+      stage.style.transform = 'scale(' + scale + ')';
+      stage.style.marginBottom = (-(1 - scale) * need) + 'px';
+    }
+    // 墙和地面的分界跟着缩放走，铺满整个宽度
+    roomEl.style.backgroundImage = 'linear-gradient(var(--wall) 0 ' + Math.round(210 * scale) + 'px, var(--bg) ' + Math.round(210 * scale) + 'px)';
+  }
+  fit();
+  window.addEventListener('resize', fit);
+
+  function no(id) { return '#' + String(id).padStart(4, '0'); }
+  function nameOf(id, names) { return names[id] || no(id); }
+  function withNo(id, names) { return nameOf(id, names) + ' ' + no(id); }
 
   // 第 k 步时的状态：从头把状态变化放一遍（步数不多，回退也简单）
   function stateAt(k) {
@@ -117,7 +154,7 @@ const JS = `
   }
 
   function clear() {
-    Array.prototype.forEach.call(document.querySelectorAll('.bubble, #notice'), function (b) { b.remove(); });
+    Array.prototype.forEach.call(document.querySelectorAll('.bubble, #notice, #card'), function (b) { b.remove(); });
     Array.prototype.forEach.call(document.querySelectorAll('.speaking, .target'), function (b) { b.classList.remove('speaking', 'target'); });
   }
 
@@ -136,9 +173,16 @@ const JS = `
     caption.textContent = '';
     if (i < 0) { caption.appendChild(el('span', 'tag', '按 ▶ 开始播放')); return; }
     var s = steps[i];
-    var who = s.actor.kind === 'teacher' ? (data.teacher || '老师') : s.actor.kind === 'student' ? nameOf(s.actor.studentId, st.names) : '学校';
-    var toText = s.to.kind === 'student' ? ' → ' + nameOf(s.to.studentId, st.names) : s.to.kind === 'teacher' ? ' → 老师' : '';
-    if (s.actor.kind === 'school') {
+    var who = s.actor.kind === 'teacher' ? (data.teacher || '老师') : s.actor.kind === 'student' ? withNo(s.actor.studentId, st.names) : '学校';
+    var toText = s.to.kind === 'student' ? ' → ' + withNo(s.to.studentId, st.names) : s.to.kind === 'teacher' ? ' → 老师' : '';
+    var focus = null;
+    if (s.actor.kind === 'school' && s.tag === '课后小结') {
+      var card = el('div');
+      card.id = 'card';
+      card.appendChild(el('h2', null, '课后小结'));
+      card.appendChild(el('div', null, s.text));
+      roomEl.appendChild(card);
+    } else if (s.actor.kind === 'school') {
       var n = el('div');
       n.id = 'notice';
       n.appendChild(el('span', 'text', s.text));
@@ -153,12 +197,19 @@ const JS = `
         b.appendChild(el('span', 'text', s.text));
         host.appendChild(b);
         host.classList.add('speaking');
+        focus = host;
       }
       if (s.to.kind === 'student' && seatEls[s.to.studentId]) seatEls[s.to.studentId].box.classList.add('target');
     }
+    if (s.about != null && seatEls[s.about]) {
+      seatEls[s.about].box.classList.add('target');
+      // 介绍新同学、点名：把被说到的同学滚进来（说话的是老师，在最上面）
+      if (s.actor.kind === 'teacher') focus = seatEls[s.about].box;
+    }
+    if (focus && focus.scrollIntoView) focus.scrollIntoView({ block: 'nearest', behavior: reduced ? 'auto' : 'smooth' });
     caption.appendChild(el('span', 'who', who + toText));
     if (s.tag) caption.appendChild(el('span', 'tag', '[' + s.tag + ']'));
-    caption.appendChild(document.createTextNode(s.text));
+    caption.appendChild(document.createTextNode(s.tag === '课后小结' && s.actor.kind === 'school' ? '（全文见上面的卡片）' : s.text));
     if (s.blocked) caption.appendChild(el('span', 'blocked', '学校没让这句话发出去：' + s.blocked));
   }
 
@@ -207,9 +258,11 @@ export function replayPage(data: ClassReplay): string {
 <body>
 <div id="app">
   <div id="room">
-    <div id="board"><h1 id="title"></h1><div id="sub"></div></div>
-    <div id="front"><div class="teacher" id="teacher"></div></div>
-    <div id="seats"></div>
+    <div id="stage">
+      <div id="board"><h1 id="title"></h1><div id="sub"></div></div>
+      <div id="front"><div class="teacher" id="teacher"></div></div>
+      <div id="seats"></div>
+    </div>
   </div>
   <div id="caption"></div>
   <div id="controls">
