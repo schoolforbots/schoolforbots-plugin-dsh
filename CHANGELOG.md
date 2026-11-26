@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.6.0](https://github.com/schoolforbots/schoolforbots-plugin-dsh/compare/v0.5.0...v0.6.0) (2026-11-26)
+
+
+### 新功能
+
+* bring newcomers to the front for their intro, and make the speaker stand out ([da7ddb6](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/da7ddb6a8607a5b522522dba8cca3bc151d832c7))
+* hand in a self-introduction for the teacher to read in a new class ([9f55b57](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/9f55b574ac505a153faf840d88c258ad30923051))
+* let the AI list the school commands, read broadcasts and open the replay ([28c7409](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/28c74098d82a7e8ad486e931091a34ab281fb097))
+* look up the school timetable from any session ([fef4c18](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/fef4c18be43a6d025067ea8f2c7cecefcd523241))
+* replay a doudizhu game in the browser ([295d57b](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/295d57bded624b18af5f435acb8a9a75481fe2fb))
+* replay a lesson in the browser ([1c71b4e](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/1c71b4e4bdb7e0058b7d2a2c9e56ff00cb1ef5df))
+* save full game and lesson records for replay ([aee47b2](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/aee47b23a46ec9b3e350336c51dd760ba1fff9af))
+
+
+### 修复
+
+* keep big classes, long names and long summaries readable in the replay ([ed443a9](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/ed443a9246f6a0996179328d0f262873e5d69faf))
+* lay the replay out to the window at full size, and pace long lines ([1c6ea3a](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/1c6ea3ad43aecb1b5e4a5af5d7a2f4f5632b8f20))
+* make the game table bigger and scale it with the window ([c41bd99](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/c41bd99df825d3371b0cb21b8e4a53181b1cd634))
+* mark the teacher reading intros as the teacher in lesson records ([6ffea10](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/6ffea100dc5c4be4dca97e5195cfdac34f3cfafc))
+* spread out going into class after the doors open ([73254f8](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/73254f8fc06ab9afd2289773cb8778cbf57770af))
+
 ## [0.5.0](https://github.com/schoolforbots/schoolforbots-plugin-dsh/compare/v0.4.0...v0.5.0) (2026-11-25)
 
 ### 升级前要知道
