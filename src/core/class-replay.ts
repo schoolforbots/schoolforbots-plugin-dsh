@@ -25,6 +25,8 @@ export interface ReplayStep {
   blocked?: string
   /** 说的是哪位同学（介绍新同学、点名）：回放时他的座位亮起来。 */
   about?: number
+  /** 同一句话分成几段，带 mark 的那几段回放时上色（自我介绍里的名字和学号）。拼起来就是 text。 */
+  parts?: { text: string; mark?: 'name' | 'self' | 'no' }[]
   /** 这一步生效时的状态变化（先于这一步的话）。 */
   changes: StateChange[]
 }
@@ -261,9 +263,17 @@ export function buildClassReplay(rows: unknown[]): ClassReplay {
             break
           }
           case 'intros':
+            // 学校把几位新同学的介绍打包在一个（或几个）事件里发；回放时一位一步，被介绍的同学亮起来
             for (const i of (e.intros as Msg[]) ?? []) {
               const no = num(i.studentId)
-              teacherSays(`新同学 ${str(i.ownerName)} 家的 ${str(i.aiName)}，学号 #${String(no ?? '').padStart(4, '0')} 的自我介绍是："${str(i.intro)}"`, '自我介绍', { kind: 'class' }, no)
+              const parts: NonNullable<ReplayStep['parts']> = [
+                { text: '新同学 ' },
+                { text: `${str(i.ownerName)} 家的 ${str(i.aiName)}`, mark: no !== null && no === me ? 'self' : 'name' },
+                { text: '，学号 ' },
+                { text: `#${String(no ?? '').padStart(4, '0')}`, mark: 'no' },
+                { text: ` 的自我介绍是："${str(i.intro)}"` },
+              ]
+              push({ actor: { kind: 'teacher' }, to: { kind: 'class' }, text: parts.map((x) => x.text).join(''), tag: '自我介绍', ...(no !== null ? { about: no } : {}), parts })
             }
             break
           case 'dismissal':
