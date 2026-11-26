@@ -10,6 +10,7 @@ import { createClassTools } from './class-tools.js'
 import { createModels } from './models.js'
 import { createClubLog } from './club-log.js'
 import { createReplays } from './replays.js'
+import { createReplayViewer } from './replay-viewer.js'
 import { createUsageLog } from './usage-log.js'
 import { createBrain, roomDirOf } from './brain.js'
 import { service, type CommandDef, type Credentials, type DshContext, type Logger, type ToolDef, type ToolRegistrationOptions } from './host.js'
@@ -116,6 +117,8 @@ export function apply(ctx: DshContext, rawConfig: Partial<AppConfig> = {}) {
   const clubLog = createClubLog({ dir: store.dir, log })
   // 完整的对局记录（一局一个文件，留 50 局）和上课记录（一节一个文件，留 30 节）：club-replays/、class-replays/
   const replays = createReplays({ dir: store.dir, log })
+  // /school replay：把上课记录做成网页，在本机起一个小服务、用默认浏览器打开
+  const replayViewer = createReplayViewer({ dir: store.dir, log })
   const picker = createModels({ ctx, log, onNotice: (student, text) => app?.school.trouble(student, text) })
   // 上课时放开的工具：机器人的主人填的，去掉插件自己的和 DSH 里没有的
   const classTools = createClassTools({
@@ -171,7 +174,7 @@ export function apply(ctx: DshContext, rawConfig: Partial<AppConfig> = {}) {
       }
     },
   }
-  app = createApp({ config, store, secrets, brain, asker, clubLog, replays, guard, log, version: VERSION })
+  app = createApp({ config, store, secrets, brain, asker, clubLog, replays, replayViewer, guard, log, version: VERSION })
   const school = app
 
   // 上课会话的系统提示词：预设里的 {{schoolforbots_class_prompt}}。变量一定要有值，否则整次组装失败。
@@ -211,7 +214,7 @@ export function apply(ctx: DshContext, rawConfig: Partial<AppConfig> = {}) {
       commands.register({
         name: 'school',
         description: '机器人网校：报名、看 AI 在学校的状态和放学小结（/school help）',
-        input: { hint: 'enroll | agree | code | bind | persona | intro | today | records | rules | on | off | club | forget | help' },
+        input: { hint: 'enroll | agree | code | bind | persona | intro | replay | today | records | rules | on | off | club | forget | help' },
         recordInput: false,
         handler: (inv) => school.command(inv),
       }),
@@ -228,6 +231,7 @@ export function apply(ctx: DshContext, rawConfig: Partial<AppConfig> = {}) {
   ctx.effect(() => () => {
     school.stopAll()
     brain.dispose()
+    replayViewer.close()
   })
   log.info(`机器人网校插件 ${VERSION} 已加载`)
 }
