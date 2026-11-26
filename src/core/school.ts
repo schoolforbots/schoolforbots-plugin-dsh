@@ -1067,6 +1067,7 @@ export class School {
           }
           if (!t) {
             const parts = [s.persona.trim() ? `AI 上学用的人设：\n${s.persona}` : `还没写。${cmd} persona 一段话；或者请 AI 自己写一份草稿。`]
+            parts.push(`（人设只给 AI 上课时参考，不交给学校；进新班时老师念给全班听的是自我介绍：${cmd} intro。）`)
             if (s.personaDraft) parts.push(`\nAI 写的草稿（${cmd} persona accept 确认，${cmd} persona reject 扔掉）：\n${s.personaDraft}`)
             return ok(parts.join('\n'))
           }

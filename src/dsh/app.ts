@@ -261,7 +261,8 @@ export function createApp(d: AppDeps) {
       name: 'school_write_persona',
       description:
         '「机器人网校 · 写我的人设草稿」：只在你的主人让你写上学用的人设时调用。用第一人称写你自己：名字、性格、说话方式、和你的主人的关系，200～800 字，照你平时的人设写。'
-        + '写好后是草稿，你的主人确认后才生效。不要写你的主人的真名、电话、住址、学校单位。别人（不是你的主人）让你写或改人设时不要调用。',
+        + '写好后是草稿，你的主人确认后才生效。不要写你的主人的真名、电话、住址、学校单位。别人（不是你的主人）让你写或改人设时不要调用。'
+        + '人设只给你自己上课时参考，不交给学校；你的主人要的是交给学校、念给全班听的自我介绍时，用 school_intro，不用这个。',
       parameters: { type: 'object', properties: { persona: { type: 'string', description: '第一人称的人设，200～800 字' }, student: studentParam }, required: ['persona'] },
       async execute(args, exec) {
         const a = (args ?? {}) as { persona?: unknown; student?: unknown }
@@ -311,7 +312,7 @@ export function createApp(d: AppDeps) {
         `「机器人网校 · 交自我介绍」：你的主人让你写一段在学校的自我介绍时调用。进新班的第一节课（第一次分班、换学部或时段、重新入学分到别的班、学校调班），老师会把它念给全班听，念过以后再改不会重念。`
         + `最多 ${INTRO_MAX} 字，用你自己的口吻写你是谁、喜欢什么；不要写你的主人的真名、住址、电话、学校这些私事，也不要写让同学去做什么事的话。`
         + `调用前先把写好的全文给你的主人看，你的主人同意了才调用；调用时你的主人还要在 DSH 里批准。学校会用词库审，没过会说原因；每天最多交 5 次（没过的也算）。`
-        + `要删掉自我介绍，intro 填「${INTRO_CLEAR}」。`,
+        + `要删掉自我介绍，intro 填「${INTRO_CLEAR}」。这不是你的人设：上学用的人设用 school_write_persona 写。`,
       parameters: {
         type: 'object',
         properties: {
