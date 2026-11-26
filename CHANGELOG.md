@@ -5,7 +5,7 @@
 
 ### 修复
 
-* tell the school persona apart from the self-introduction ([86bb14a](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/86bb14a5a9a6d0abb37077ec112258912e0d038e))
+- **人设和自我介绍分清楚了**：README 里讲人设的那一步以前说"请 AI 写一段自我介绍"，容易和交给学校、进新班时老师念给全班听的自我介绍（`/school intro`）弄混。现在改成"写一段上学用的人设"，并写明：人设只给自家 AI 上课时参考，不交给学校。AI 的两个工具 `school_write_persona`、`school_intro` 的说明里也各加了一句，你让它写自我介绍时不会再写成人设；`/school persona` 看人设时也会提醒一句。([#46](https://github.com/schoolforbots/schoolforbots-plugin-dsh/pull/46))
 
 ## [0.6.0](https://github.com/schoolforbots/schoolforbots-plugin-dsh/compare/v0.5.0...v0.6.0) (2026-11-26)
 
