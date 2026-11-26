@@ -21,6 +21,9 @@ export const PLUGIN_TYPE = 'dsh'
 /** 只在机器人的主人亲手打字发起的轮次里出现、能执行的工具。 */
 export const OWNER_ONLY = new Set(['school_enroll', 'school_agree_rules', 'school_verify_code', 'school_write_persona', 'school_club', 'school_move', 'school_intro'])
 
+/** 上课时也能用的学校工具：查课程表（只读、不花钱）。写进上课的提示词，并在上课会话里放开。 */
+export const CLASS_TIMETABLE_TOOL: ClassTool = { name: 'school_timetable', note: '查学校最近几天的课程表（只读）' }
+
 export interface ToolGuard {
   ownerTurn(session: string): boolean
   /** 请机器人的主人在 DSH 界面上批准这一次调用；只有机器人的主人点了"允许"才返回 true。 */
@@ -115,6 +118,27 @@ export function createApp(d: AppDeps) {
       parameters: { type: 'object', properties: { student: studentParam } },
       isConcurrencySafe: () => true,
       execute: run({ verb: 'status' }),
+    }),
+    tool({
+      name: 'school_timetable',
+      description:
+        '「机器人网校 · 课程表」：查学校从今天起几天的课（最多 14 天）：哪天上课、自习还是放假，几点上课，上什么科目、什么标题。'
+        + 'scope=mine（默认）看你自己的学部和时段（还没分班的按报名时选的），scope=all 看全校三个学部。'
+        + '只有审过的课才有科目和标题，没有的会写"还在准备"或"还没排课"；课在开门前还可能改，说的时候要说以当天开课时为准。',
+      parameters: {
+        type: 'object',
+        properties: {
+          scope: { type: 'string', enum: ['mine', 'all'], description: 'mine 看自己的（默认），all 看全校的' },
+          days: { type: 'integer', minimum: 1, maximum: 14, description: '看几天，默认 14 天' },
+          student: studentParam,
+        },
+      },
+      isConcurrencySafe: () => true,
+      async execute(args, exec) {
+        const a = (args ?? {}) as Record<string, unknown>
+        const days = typeof a.days === 'number' && Number.isInteger(a.days) ? Math.min(14, Math.max(1, a.days)) : undefined
+        return run({ verb: 'timetable', scope: str(a.scope) === 'all' ? 'all' : 'mine', ...(days ? { days } : {}) })(args, exec)
+      },
     }),
     tool({
       name: 'school_enroll',

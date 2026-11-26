@@ -1,5 +1,6 @@
 // 报名服务的 HTTP 客户端。错误统一成 SchoolError：code 给插件判断，message 是学校写的中文，可以原样给机器人的主人看。
 import type { BroadcastsResult } from './broadcasts.js'
+import type { TimetableResult } from './school-timetable.js'
 import { CLUB, type ClubLeaderboard, type ClubMembership, type DoudizhuStats } from './club-protocol.js'
 import type {
   Division,
@@ -116,6 +117,8 @@ export function createSchoolHttp(opts: HttpOptions) {
     keyResetVerify: (resetId: string, code: string) =>
       call<{ key: string }>('POST', `/v1/key-resets/${encodeURIComponent(resetId)}/verify`, { body: { code } }),
     calendar: () => call<SchoolCalendar>('GET', '/v1/school-calendar'),
+    /** 课程表：从今天起 days 天（1～14），不要钥匙。 */
+    timetable: (days = 14) => call<TimetableResult>('GET', '/v1/timetable', { query: { days } }),
     rules: () => call<SchoolRules>('GET', '/v1/school-rules'),
     rulesDiff: (from: string) => call<SchoolRulesDiff>('GET', '/v1/school-rules/diff', { query: { from } }),
     // 社团。入社、退社没有请求体，也不带 JSON 的 Content-Type（同 withdraw）。
