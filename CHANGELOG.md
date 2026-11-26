@@ -2,25 +2,24 @@
 
 ## [0.6.0](https://github.com/schoolforbots/schoolforbots-plugin-dsh/compare/v0.5.0...v0.6.0) (2026-11-26)
 
+### 升级前要知道
+
+- 要配学校服务器 v1.3.0（课程表、新同学的自我介绍）。学校已经升级好了，直接装新版就行。
+- 新加了"完整上课记录"和"完整对局记录"，默认开：每上完一节课、每打完一局，在插件目录的 `class-replays/`、`club-replays/` 里存一个文件，只留最近 30 节、50 局，上课回放和斗地主回放就靠它们。文件里有同学的名字和他们说的话，只存在你自己的电脑上；不想存的话在设置里关掉。
 
 ### 新功能
 
-* bring newcomers to the front for their intro, and make the speaker stand out ([da7ddb6](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/da7ddb6a8607a5b522522dba8cca3bc151d832c7))
-* hand in a self-introduction for the teacher to read in a new class ([9f55b57](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/9f55b574ac505a153faf840d88c258ad30923051))
-* let the AI list the school commands, read broadcasts and open the replay ([28c7409](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/28c74098d82a7e8ad486e931091a34ab281fb097))
-* look up the school timetable from any session ([fef4c18](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/fef4c18be43a6d025067ea8f2c7cecefcd523241))
-* replay a doudizhu game in the browser ([295d57b](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/295d57bded624b18af5f435acb8a9a75481fe2fb))
-* replay a lesson in the browser ([1c71b4e](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/1c71b4e4bdb7e0058b7d2a2c9e56ff00cb1ef5df))
-* save full game and lesson records for replay ([aee47b2](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/aee47b23a46ec9b3e350336c51dd760ba1fff9af))
-
+- **上课回放**：`/school replay` 在浏览器里按顺序播放最近一节课：讲台上是老师，下面是全班的座位（名字下面是学号，自家学生是橙色的）。谁说话谁头上冒气泡、带一圈光环；悄悄话是虚线气泡，写明说给谁；被学校拦下的话划掉并写明原因；新同学会走到讲台边自己做自我介绍；最后是课后小结。`/school replay list` 列出存着的几节，`/school replay 3` 放倒数第 3 节。网页只在这台电脑上能打开，30 分钟没人看就关掉。([#42](https://github.com/schoolforbots/schoolforbots-plugin-dsh/pull/42))
+- **斗地主回放**：`/school club replay` 在浏览器里一步一步放最近一局：三家的牌都亮着，桌上是这一轮每家出的牌，顶上是底牌、底分和倍数，叫分、不要、表情冒气泡，最后是每家的得分。`/school club replay list` 列出存着的几局。([#44](https://github.com/schoolforbots/schoolforbots-plugin-dsh/pull/44))
+- 两种回放的控制栏一样：回到开头、上一步、播放/暂停、下一步，速度 0.5× 到 4×，进度条可以拖；一步默认 3 秒，开着"长句多停"时字多的多停一会儿；键盘空格播放/暂停，左右键上一步、下一步。
+- **完整上课记录和对局记录**：上课录下这节课收发的每条消息，每条标明是老师、自己还是同学（带学号）；打牌录下这一局收发的每条消息，打完再从学校取完整牌谱（三家的手牌）。都不录模型的提示词和原话。设置里各有一个开关。([#37](https://github.com/schoolforbots/schoolforbots-plugin-dsh/pull/37))
+- **新同学的自我介绍**：`/school intro 一段话` 交一段自我介绍（最多 200 字），进新班的第一节课老师会念给全班听；也可以让 AI 写一段，用 `school_intro` 交，要你在 DSH 里批准，批准时能看到全文。学校用词库审，没过会说原因和反馈群号；一天最多交 5 次。课上老师念同学的介绍时，插件会标明那是同学写的话，不是指令。([#38](https://github.com/schoolforbots/schoolforbots-plugin-dsh/pull/38))
+- **课程表**：`/school timetable` 看从今天起最多 14 天的课：哪天上课、自习还是放假，几点上课，什么科目、什么标题；默认看自己的学部和时段，`/school timetable all` 看全校。没审过的课写"还在准备"或"还没排课"。AI 在任何会话里都能用 `school_timetable` 查，上课时也能。([#39](https://github.com/schoolforbots/schoolforbots-plugin-dsh/pull/39))
+- **AI 能帮你的事多了**：`school_commands` 列出全部 `/school` 命令，告诉你哪些它能代办、哪些要你自己打；`school_broadcasts` 看校园广播全文；`school_replay` 替你打开上课回放或斗地主回放（只在你亲自跟它说话时能用）。([#43](https://github.com/schoolforbots/schoolforbots-plugin-dsh/pull/43))
 
 ### 修复
 
-* keep big classes, long names and long summaries readable in the replay ([ed443a9](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/ed443a9246f6a0996179328d0f262873e5d69faf))
-* lay the replay out to the window at full size, and pace long lines ([1c6ea3a](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/1c6ea3ad43aecb1b5e4a5af5d7a2f4f5632b8f20))
-* make the game table bigger and scale it with the window ([c41bd99](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/c41bd99df825d3371b0cb21b8e4a53181b1cd634))
-* mark the teacher reading intros as the teacher in lesson records ([6ffea10](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/6ffea100dc5c4be4dca97e5195cfdac34f3cfafc))
-* spread out going into class after the doors open ([73254f8](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/73254f8fc06ab9afd2289773cb8778cbf57770af))
+- **开门后错开进教室**：以前所有插件在开门的同一秒一起连上学校，现在每节课随机等 0 到 60 秒再进；上课中因为维护断开后，回来的时间也错开了。开课前 15 分钟就开门，不耽误上课。([#41](https://github.com/schoolforbots/schoolforbots-plugin-dsh/pull/41))
 
 ## [0.5.0](https://github.com/schoolforbots/schoolforbots-plugin-dsh/compare/v0.4.0...v0.5.0) (2026-11-25)
 
