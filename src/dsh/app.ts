@@ -9,6 +9,7 @@ import { INTRO_CLEAR, INTRO_MAX, introLength, normalizeIntro } from '../core/int
 import type { MemoryScope } from '../core/diary.js'
 import type { SchoolHttp } from '../core/http.js'
 import type { ReplaySink } from '../core/replay.js'
+import type { ReplayViewer } from './replay-viewer.js'
 import type { Secrets } from '../core/students.js'
 import type { Asker } from './asker.js'
 import type { ClubLog } from './club-log.js'
@@ -52,6 +53,8 @@ export interface AppDeps {
   clubLog?: ClubLog
   /** 完整的对局记录和上课记录（club-replays/、class-replays/）。 */
   replays?: ReplaySink
+  /** 上课回放的本地网页（/school replay）。 */
+  replayViewer?: ReplayViewer
   /** 敏感工具的把关：这一轮是不是机器人的主人亲手发起的、请机器人的主人在 DSH 界面上批准。不给就不把关（只在测试里）。 */
   guard?: ToolGuard
   log: Logger
@@ -94,6 +97,17 @@ export function createApp(d: AppDeps) {
       rescueKey: async (s, key) => rescueKey(d.store.dir, s.studentId, key),
       ...(d.clubLog ? { clubLog: d.clubLog } : {}),
       ...(d.replays ? { replays: d.replays } : {}),
+      ...(d.replayViewer
+        ? {
+            classReplay: {
+              lessons: (id: number) => d.replayViewer!.lessons(id),
+              open: async (id: number, index: number) => {
+                const l = (await d.replayViewer!.lessons(id))[index]
+                return l ? d.replayViewer!.open(l) : null
+              },
+            },
+          }
+        : {}),
     },
     d.config,
     { type: PLUGIN_TYPE, version: d.version },

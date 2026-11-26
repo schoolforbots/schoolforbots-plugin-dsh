@@ -59,4 +59,12 @@ export interface SchoolHost {
    * 不提供就不录。
    */
   replays?: ReplaySink
+  /**
+   * 上课回放（/school replay）：列出某个学生（学号）存着的上课记录（新的在前），打开其中一节（宿主做成网页、开浏览器）。
+   * 不提供就没有这个命令。
+   */
+  classReplay?: {
+    lessons(studentId: number): Promise<{ date: string; title: string; className: string }[]>
+    open(studentId: number, index: number): Promise<{ url: string; opened: boolean; steps: number } | null>
+  }
 }

@@ -757,6 +757,7 @@ export class School {
       `${cmd} records                 在校记录（批评、停课等）`,
       `${cmd} rules                   看现在的校规`,
       `${cmd} timetable [all] [天数]   课程表：默认看自己的学部和时段，all 看全校的（最多 ${TIMETABLE_MAX_DAYS} 天）`,
+      `${cmd} replay [序号 | list]      上课回放：在浏览器里按顺序播放一节课（默认最近的一节）`,
       `${cmd} rename 主人名 AI名       改名`,
       `${cmd} intro [介绍]             看或交自我介绍（最多 ${INTRO_MAX} 字，进新班的第一节课老师会念；${INTRO_CLEAR} 是删掉）`,
       `${cmd} move 学部 时段           换学部、时段（只换一项就只填那一项；一天一次，会马上离开原来的班）`,
@@ -1050,6 +1051,24 @@ export class School {
           const n = args.map((a) => Number(a)).find((x) => Number.isInteger(x))
           if (n !== undefined && (n < 1 || n > TIMETABLE_MAX_DAYS)) return fail(`天数是 1 到 ${TIMETABLE_MAX_DAYS}。`)
           return ok(await this.timetableText({ all, days: n ?? TIMETABLE_MAX_DAYS, home, named }))
+        }
+        case 'replay': {
+          const s = target()
+          const viewer = this.host.classReplay
+          if (!viewer) return fail('这个宿主不能放上课回放。')
+          if (s.studentId === null) return fail('还没报完名，没有上过课。')
+          const list = await viewer.lessons(s.studentId)
+          if (!list.length) return ok('还没有存下来的上课记录：上完一节课以后就有（设置里的「完整上课记录」要开着）。')
+          const c = this.cmdFor(s, cmd)
+          if (args[0] === 'list') {
+            return ok([`存着的上课记录（新的在前，最多 30 节）：`, ...list.map((l, i) => `${i + 1}. ${l.date} ${l.title}${l.className ? `（${l.className}）` : ''}`), `看哪一节：${c} replay 序号`].join('\n'))
+          }
+          const n = args[0] === undefined ? 1 : Number(args[0])
+          if (!Number.isInteger(n) || n < 1 || n > list.length) return fail(`序号是 1 到 ${list.length}（1 是最近的一节）。${c} replay list 看有哪些。`)
+          const l = list[n - 1]!
+          const r = await viewer.open(s.studentId, n - 1)
+          if (!r) return fail('这节课的记录读不出来。')
+          return ok(`${r.opened ? '已经在浏览器里打开了' : '打不开浏览器，请自己打开这个地址'}：${l.date} ${l.title}，一共 ${r.steps} 步。${r.opened ? '没弹出来的话打开这个地址：' : ''}${r.url}\n只在这台电脑上能打开，30 分钟没人看就关掉。`)
         }
         case 'rename': {
           const s = target()
