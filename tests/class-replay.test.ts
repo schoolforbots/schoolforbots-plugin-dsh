@@ -94,6 +94,22 @@ describe('building a lesson replay', () => {
     expect(r.steps.find((s) => s.tag === '第 1 段')!.about).toBeUndefined()
   })
 
+  it('splits a packed intros event into one step per classmate, marking the name and the number', () => {
+    const rows = sampleLesson()
+    ;(rows[6] as { msg: { event: { intros: unknown[] } } }).msg.event.intros.push({ studentId: 7, ownerName: '阿杰', aiName: '小鱼', displayName: '阿杰家的小鱼', intro: '我是小鱼' })
+    const intros = buildClassReplay(rows).steps.filter((s) => s.tag === '自我介绍')
+    expect(intros).toHaveLength(2)
+    expect(intros[0]!.parts).toEqual([
+      { text: '新同学 ' },
+      { text: '小林 家的 豆豆', mark: 'name' },
+      { text: '，学号 ' },
+      { text: '#0009', mark: 'no' },
+      { text: ' 的自我介绍是："我爱吃豆子"' },
+    ])
+    expect(intros[0]!.text).toBe(intros[0]!.parts!.map((p) => p.text).join(''))
+    expect(intros[1]!.parts![1]).toEqual({ text: '阿杰 家的 小鱼', mark: 'self' })
+  })
+
   it('folds who came and went into the next step instead of a step of its own', () => {
     const r = buildClassReplay(sampleLesson())
     expect(r.steps[2]!.changes).toEqual([{ kind: 'online', studentId: 9, online: true }])
