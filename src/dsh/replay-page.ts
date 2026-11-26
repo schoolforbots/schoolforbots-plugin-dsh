@@ -20,7 +20,16 @@ html,body { margin:0; height:100%; background:var(--bg); color:var(--ink); font:
 #board { width:min(100%, 680px); background:var(--board); color:var(--chalk); border:8px solid #7a5a36; border-radius:6px; padding:8px 18px; text-align:center; box-shadow:0 3px 8px rgba(0,0,0,.25); }
 #board h1 { margin:0; font-size:20px; font-weight:600; letter-spacing:1px; }
 #board div { opacity:.85; font-size:13px; }
-.teacher { position:relative; display:flex; flex-direction:column; align-items:center; margin-top:10px; }
+#stagerow { position:relative; display:flex; justify-content:center; align-items:flex-start; margin-top:10px; }
+.teacher { position:relative; display:flex; flex-direction:column; align-items:center; --hl:var(--teacher); }
+#spot { position:absolute; top:0; left:calc(50% + 78px); width:110px; display:flex; flex-direction:column; align-items:center; }
+.guest { display:flex; flex-direction:column; align-items:center; position:relative; --hl:var(--mate); }
+.guest.self { --hl:var(--self); }
+.guest .avatar { background:var(--hl); }
+.guest .name { font-weight:600; color:var(--hl); max-width:110px; }
+.guest .bubble { bottom:auto; top:0; left:calc(50% + 40px); transform:none; border-color:var(--hl); max-width:min(480px, calc(50vw - 80px)); animation:popside .35s ease-out .55s backwards; }
+.guest .bubble::after { top:16px; left:-14px; margin-left:0; border-top-color:transparent; border-right-color:var(--hl); }
+.guest .bubble .who { display:block; font-size:12px; margin-bottom:2px; }
 .podium { width:130px; height:16px; background:var(--deskdark); border-radius:4px 4px 0 0; margin-top:-6px; }
 .avatar { width:54px; height:54px; border-radius:50%; display:flex; align-items:center; justify-content:center; color:#fff; font-size:22px; font-weight:600; border:3px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,.2); transition:opacity .4s, transform .3s; }
 .teacher .avatar { background:var(--teacher); width:56px; height:56px; }
@@ -29,14 +38,20 @@ html,body { margin:0; height:100%; background:var(--bg); color:var(--ink); font:
 .no { font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums; }
 #seats { display:grid; grid-template-columns:repeat(auto-fill, minmax(118px, 1fr)); gap:62px 14px; padding:76px 24px 40px; max-width:1500px; margin:0 auto; }
 .seat { position:relative; display:flex; flex-direction:column; align-items:center; transition:opacity .4s; min-width:0; }
-.seat .avatar { background:var(--mate); }
-.seat.self .avatar { background:var(--self); }
+.seat { --hl:var(--mate); }
+.seat.self { --hl:var(--self); }
+.seat .avatar { background:var(--hl); }
+.seat.away .avatar { background:transparent; border:3px dashed #c9bfa9; box-shadow:none; color:transparent; }
+.seat.away .name::after { content:'（上台了）'; color:var(--muted); font-weight:400; }
 .seat.self .name { color:var(--self); font-weight:600; }
 .seat.offline { opacity:.32; }
 .badge { position:absolute; top:-6px; left:calc(50% + 14px); background:var(--self); color:#fff; font-size:11px; padding:0 6px; border-radius:8px; border:2px solid #fff; }
 .desk { width:min(100%, 104px); height:14px; background:var(--desk); border-radius:3px; margin-top:6px; box-shadow:0 3px 0 var(--deskdark); }
-.speaking .avatar { transform:scale(1.12); }
-.target .avatar { box-shadow:0 0 0 4px rgba(224,120,47,.35), 0 0 14px rgba(224,120,47,.6); }
+.speaking .avatar { transform:scale(1.18); box-shadow:0 0 0 3px #fff, 0 0 0 8px var(--hl), 0 0 22px 8px var(--hl); animation:glow 1.3s ease-in-out infinite; }
+.speaking > .name { background:var(--hl); color:#fff !important; border-radius:8px; padding:0 7px; margin-top:9px; }
+.target .avatar { outline:3px dashed var(--self); outline-offset:5px; }
+#seats.focus .seat:not(.speaking):not(.target):not(.offline) { opacity:.55; }
+@keyframes glow { 0%,100% { box-shadow:0 0 0 3px #fff, 0 0 0 7px var(--hl), 0 0 14px 4px var(--hl); } 50% { box-shadow:0 0 0 3px #fff, 0 0 0 9px var(--hl), 0 0 30px 12px var(--hl); } }
 .bubble { position:absolute; bottom:calc(100% + 8px); left:50%; transform:translateX(-50%); width:max-content; max-width:min(300px, 80vw); background:#fff; border:2px solid var(--mate); border-radius:14px; padding:7px 11px; font-size:14px; box-shadow:0 3px 8px rgba(0,0,0,.15); z-index:5; animation:pop .35s ease-out; }
 .bubble::after { content:""; position:absolute; top:100%; left:var(--tail, 50%); margin-left:-7px; border:7px solid transparent; border-top-color:inherit; }
 .teacher .bubble { border-color:var(--teacher); max-width:min(520px, calc(50vw - 60px)); bottom:auto; top:0; left:calc(50% + 40px); transform:none; animation:popside .35s ease-out; }
@@ -60,13 +75,20 @@ html,body { margin:0; height:100%; background:var(--bg); color:var(--ink); font:
 #caption .who { font-weight:600; margin-right:6px; }
 #caption .tag { color:var(--muted); font-size:12px; margin-right:6px; }
 #caption .blocked { color:#a33; font-size:13px; display:block; }
-#controls { display:flex; align-items:center; gap:10px; padding:8px 16px; background:#2b2b2b; color:#eee; flex-wrap:wrap; }
-#controls button { background:#444; color:#fff; border:0; border-radius:6px; padding:6px 12px; font-size:15px; cursor:pointer; min-width:42px; }
-#controls button:hover { background:#555; }
-#controls select { background:#444; color:#fff; border:0; border-radius:6px; padding:6px; }
-#controls label { font-size:13px; display:flex; align-items:center; gap:4px; cursor:pointer; }
-#progress { flex:1; min-width:120px; }
-#count { min-width:80px; text-align:right; font-variant-numeric:tabular-nums; font-size:13px; }
+#controls { display:flex; align-items:center; gap:12px; padding:8px 16px; background:#262626; color:#eee; flex-wrap:wrap; }
+#controls .group { display:flex; align-items:center; gap:6px; }
+#controls button { display:flex; align-items:center; justify-content:center; width:38px; height:34px; background:#3a3a3a; color:#fff; border:0; border-radius:8px; cursor:pointer; padding:0; }
+#controls button:hover { background:#4a4a4a; }
+#controls button svg { width:18px; height:18px; fill:currentColor; }
+#controls button#play { width:46px; height:40px; border-radius:20px; background:#e0782f; }
+#controls button#play:hover { background:#ee8a43; }
+#controls button#play svg { width:20px; height:20px; }
+#controls select { background:#3a3a3a; color:#fff; border:0; border-radius:8px; height:34px; padding:0 8px; font-size:13px; }
+#controls label { font-size:13px; display:flex; align-items:center; gap:6px; cursor:pointer; user-select:none; }
+#controls label input { accent-color:#e0782f; width:16px; height:16px; }
+#progress { flex:1; min-width:140px; accent-color:#e0782f; }
+#count { text-align:right; font-variant-numeric:tabular-nums; font-size:13px; line-height:1.25; min-width:84px; }
+#count small { color:#aaa; display:block; font-size:11px; }
 `
 
 const JS = `
@@ -76,6 +98,9 @@ const JS = `
   var seatsEl = document.getElementById('seats');
   var teacherEl = document.getElementById('teacher');
   var frontEl = document.getElementById('front');
+  var spotEl = document.getElementById('spot');
+  var PLAY = '<svg viewBox="0 0 24 24"><path d="M7 4v16l13-8z"/></svg>';
+  var PAUSE = '<svg viewBox="0 0 24 24"><path d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg>';
   var roomEl = document.getElementById('room');
   var wrapEl = document.getElementById('roomwrap');
   var caption = document.getElementById('caption');
@@ -160,9 +185,39 @@ const JS = `
     b.style.setProperty('--tail', 'calc(50% - ' + shift + 'px)');
   }
 
+  // 自我介绍：被介绍的同学从座位走到讲台边，自己说出介绍；座位上留个空位
+  function onStage(s, st) {
+    var id = s.intro.studentId;
+    var seat = seatEls[id];
+    var self = id === data.me;
+    var g = el('div', 'guest speaking' + (self ? ' self' : ''));
+    var av = el('div', 'avatar', initial(nameOf(id, st.names)));
+    g.appendChild(av);
+    g.appendChild(el('div', 'name', nameOf(id, st.names)));
+    g.appendChild(el('div', 'no', no(id)));
+    var b = el('div', 'bubble');
+    var who = el('span', 'who');
+    who.appendChild(el('span', self ? 'mark-self' : 'mark-name', s.intro.ownerName + ' 家的 ' + s.intro.aiName));
+    who.appendChild(document.createTextNode(' '));
+    who.appendChild(el('span', 'mark-no', no(id)));
+    who.appendChild(document.createTextNode(' · 新同学自我介绍'));
+    b.appendChild(who);
+    b.appendChild(el('span', 'text', s.intro.text));
+    g.appendChild(b);
+    spotEl.appendChild(g);
+    if (seat) {
+      var from = seat.box.querySelector('.avatar').getBoundingClientRect();
+      seat.box.classList.add('away');
+      var to = av.getBoundingClientRect();
+      if (!reduced && av.animate && from.width) av.animate([{ transform: 'translate(' + (from.left - to.left) + 'px,' + (from.top - to.top) + 'px)' }, { transform: 'none' }], { duration: 650, easing: 'cubic-bezier(.2,.7,.2,1)' });
+    }
+  }
+
   function clear() {
     Array.prototype.forEach.call(document.querySelectorAll('.bubble, #notice, #card'), function (b) { b.remove(); });
-    Array.prototype.forEach.call(document.querySelectorAll('.speaking, .target'), function (b) { b.classList.remove('speaking', 'target'); });
+    Array.prototype.forEach.call(document.querySelectorAll('.speaking, .target, .away'), function (b) { b.classList.remove('speaking', 'target', 'away'); });
+    spotEl.textContent = '';
+    seatsEl.classList.remove('focus');
   }
 
   function show(k) {
@@ -177,6 +232,7 @@ const JS = `
     clear();
     progress.value = Math.max(0, i);
     count.textContent = (i + 1) + ' / ' + steps.length;
+    if (i >= 0) count.appendChild(el('small', null, '本步 ' + (Math.round(stepMs(steps[i]) / Number(speedSel.value) / 100) / 10) + ' 秒'));
     caption.textContent = '';
     caption.scrollTop = 0;
     if (i < 0) { caption.appendChild(el('span', 'tag', '按 ▶ 开始播放')); return; }
@@ -192,6 +248,8 @@ const JS = `
       card.appendChild(el('h2', null, '课后小结'));
       card.appendChild(el('div', null, s.text));
       wrapEl.appendChild(card);
+    } else if (s.intro) {
+      onStage(s, st);
     } else if (s.actor.kind === 'school') {
       var n = el('div');
       n.id = 'notice';
@@ -213,12 +271,13 @@ const JS = `
       }
       if (s.to.kind === 'student' && seatEls[s.to.studentId]) seatEls[s.to.studentId].box.classList.add('target');
     }
-    if (s.about != null && seatEls[s.about]) {
+    if (s.about != null && seatEls[s.about] && !s.intro) {
       seatEls[s.about].box.classList.add('target');
       // 介绍新同学、点名：把被说到的同学滚进来（老师钉在顶上，本来就看得到）
       if (!focus) focus = seatEls[s.about].box;
     }
     if (focus) follow(focus);
+    if (document.querySelector('#seats .speaking, #seats .target')) seatsEl.classList.add('focus');
     caption.appendChild(el('span', 'who', who + toText));
     if (s.tag) caption.appendChild(el('span', 'tag', '[' + s.tag + ']'));
     if (summary) caption.appendChild(document.createTextNode('（全文见上面的卡片）'));
@@ -239,14 +298,14 @@ const JS = `
     if (i >= steps.length - 1) { setPlaying(false); return; }
     timer = setTimeout(function () { show(i + 1); schedule(); }, stepMs(steps[i]) / Number(speedSel.value));
   }
-  function setPlaying(p) { playing = p; playBtn.textContent = p ? '⏸' : '▶'; playBtn.title = p ? '暂停（空格）' : '播放（空格）'; schedule(); }
+  function setPlaying(p) { playing = p; playBtn.innerHTML = p ? PAUSE : PLAY; playBtn.title = p ? '暂停（空格）' : '播放（空格）'; schedule(); }
 
   document.getElementById('first').onclick = function () { show(-1); roomEl.scrollTop = 0; setPlaying(false); };
   document.getElementById('prev').onclick = function () { show(i - 1); schedule(); };
   document.getElementById('next').onclick = function () { show(i + 1); schedule(); };
   playBtn.onclick = function () { if (!playing && i >= steps.length - 1) show(-1); setPlaying(!playing); };
-  speedSel.onchange = schedule;
-  paceBox.onchange = schedule;
+  speedSel.onchange = function () { show(i); schedule(); };
+  paceBox.onchange = function () { show(i); schedule(); };
   progress.oninput = function () { show(Number(progress.value)); schedule(); };
   document.addEventListener('keydown', function (e) {
     if (e.target === speedSel) return;
@@ -283,27 +342,29 @@ export function replayPage(data: ClassReplay): string {
     <div id="room">
       <div id="front">
         <div id="board"><h1 id="title"></h1><div id="sub"></div></div>
-        <div class="teacher" id="teacher"></div>
+        <div id="stagerow"><div class="teacher" id="teacher"></div><div id="spot"></div></div>
       </div>
       <div id="seats"></div>
     </div>
   </div>
   <div id="caption"></div>
   <div id="controls">
-    <button id="first" title="从头">⏮</button>
-    <button id="prev" title="上一步（←）">◀◀</button>
-    <button id="play" title="播放/暂停（空格）">⏸</button>
-    <button id="next" title="下一步（→）">▶▶</button>
-    <select id="speed" title="速度">
+    <div class="group">
+      <button id="first" title="回到开头" aria-label="回到开头"><svg viewBox="0 0 24 24"><path d="M6 5h2v14H6zM20 5v14L9 12z"/></svg></button>
+      <button id="prev" title="上一步（←）" aria-label="上一步"><svg viewBox="0 0 24 24"><path d="M12 5v14L3 12zM21 5v14l-9-7z"/></svg></button>
+      <button id="play" title="播放/暂停（空格）" aria-label="播放/暂停"></button>
+      <button id="next" title="下一步（→）" aria-label="下一步"><svg viewBox="0 0 24 24"><path d="M3 5v14l9-7zM12 5v14l9-7z"/></svg></button>
+    </div>
+    <select id="speed" title="播放速度" aria-label="播放速度">
       <option value="0.5">0.5×</option>
       <option value="0.75">0.75×</option>
-      <option value="1" selected>1×（一步 3 秒）</option>
+      <option value="1" selected>1×</option>
       <option value="1.5">1.5×</option>
       <option value="2">2×</option>
       <option value="4">4×</option>
     </select>
-    <label title="字多的一步按大约每秒 8 个字多停一会儿，最多 30 秒（1× 的时间）"><input id="pace" type="checkbox" checked>长的话多停一会儿</label>
-    <input id="progress" type="range" min="0" value="0">
+    <label title="开着：短的一步停 3 秒，字多的按大约每秒 8 个字多停，最多 30 秒；关着：每步都停 3 秒（都是 1× 的时间）"><input id="pace" type="checkbox" checked>长句多停</label>
+    <input id="progress" type="range" min="0" value="0" aria-label="进度">
     <span id="count"></span>
   </div>
 </div>
