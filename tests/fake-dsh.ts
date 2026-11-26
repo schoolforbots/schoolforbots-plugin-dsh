@@ -41,6 +41,8 @@ export interface FakeDsh {
   archived: string[]
   /** 归档时报错。 */
   archiveFails: boolean
+  /** 一轮里先调这些工具（每个工具一条带 tool-call 的 assistant/message，先过 tools/pre-execute），再给最后的回答。 */
+  toolSteps: string[]
   /** assistant/message 里带的用量（照真 DSH）。 */
   usage: Record<string, number> | null
   /** 别的插件注册的全局工具名（ctx.tools.definitions() 里有，restrict 认得）。 */
@@ -142,6 +144,10 @@ export function createFakeDsh(): FakeDsh {
             emit('session/event', session, { type: 'turn/end', data: { turn: t, reason: { kind: 'error', error: { code: 'AUTH_FAILED', message: 'no key' } } } })
             return
           }
+          for (const name of fake.toolSteps) {
+            const d = await fake.preExecute(sid, name)
+            emit('session/event', session, { type: 'assistant/message', data: { turn: t, message: { content: [{ type: 'text', text: `我查一下 ${name}（${d.kind}）` }, { type: 'tool-call', toolName: name, input: {} }] } } })
+          }
           const text = fake.reply(msg.content[0]!.text, sid)
           emit('session/event', session, { type: 'assistant/message', data: { turn: t, message: { content: [{ type: 'text', text }] }, ...(fake.usage ? { usage: fake.usage } : {}) } })
           emit('session/event', session, { type: 'turn/end', data: { turn: t, reason: { kind: 'completed' } } })
@@ -214,6 +220,7 @@ export function createFakeDsh(): FakeDsh {
     archived: [],
     archiveFails: false,
     usage: null,
+    toolSteps: [],
     async preExecute(sid, name, base = { kind: 'allow' }) {
       const list = [...(listeners.get('tools/pre-execute') ?? [])]
       const chain = [...list.filter((l) => l.prepend).reverse(), ...list.filter((l) => !l.prepend)]
