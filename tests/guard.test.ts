@@ -116,6 +116,18 @@ describe('guarded tools', () => {
     expect(String(await t.app.memoryTool.execute({}, t.exec))).toContain('还没有学生')
   })
 
+  it('keeps the replay to the owner\'s own turn without asking, and lists every command anywhere', async () => {
+    const other = setup({ owner: false, approve: true })
+    expect(String(await other.tool('school_replay').execute({}, other.exec))).toContain('你的主人亲手发消息')
+    const list = String(await other.tool('school_commands').execute({}, other.exec))
+    expect(list).toContain('/school replay [序号 | list]')
+    expect(list).toContain('工具 school_replay')
+    expect(list).toContain('/school withdraw 确认：退学。只能你的主人自己打。')
+    const mine = setup({ owner: true, approve: false })
+    expect(String(await mine.tool('school_replay').execute({ action: 'list' }, mine.exec))).toContain('还没报名')
+    expect(mine.asked).toEqual([])
+  })
+
   it('asks the owner to approve agreeing to the rules and does nothing without it', async () => {
     const t = setup({ owner: true, approve: false })
     expect(String(await t.tool('school_enroll').execute(enrollArgs, t.exec))).toContain('校规正文')

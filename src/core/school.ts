@@ -118,6 +118,11 @@ export interface OwnerContext {
   isSchoolSession?: (id: string) => boolean
   /** 命令的叫法，比如 "/school"。用在提示语里。 */
   command?: string
+  /**
+   * 机器人的主人看得到这次的回复（默认是）。AI 在不是机器人的主人亲手发起的轮次里查广播时是 false：
+   * 这时看过的广播不算转告过，以后照样请 AI 转告。
+   */
+  ownerSees?: boolean
   /** 从 AI 的工具来的（回复会交给模型）：钥匙本身绝不出现在回复里。 */
   fromAgent?: boolean
 }
@@ -135,6 +140,12 @@ export type AgentAction =
   | { verb: 'intro'; text: string }
   /** 查课程表：mine 是自己的学部和时段，all 是全校的。 */
   | { verb: 'timetable'; scope?: 'mine' | 'all'; days?: number }
+  /** 看校园广播全文。ownerSees：这一轮是机器人的主人亲手发起的，看完就算转告过了（别的会话里看不算）。 */
+  | { verb: 'broadcasts'; count?: number; ownerSees: boolean }
+  /** 上课回放：list 列出存着的课；否则打开第 index 节（1 是最近的一节）。 */
+  | { verb: 'replay'; list?: boolean; index?: number }
+  /** 列出全部 /school 命令，以及哪些能用工具代办。 */
+  | { verb: 'commands' }
 
 export function slotTime(s: string): SlotTime | undefined {
   const m = /^\s*(\d{1,2}:\d{2})\s*[-~～—]\s*(\d{1,2}:\d{2})\s*$/.exec(s)
@@ -607,6 +618,7 @@ export class School {
     if (name && !this.students.some((s) => s.aiName === name || displayNameOf(s) === name)) {
       return wrap(false, `没有叫「${[...name].slice(0, 20).join('')}」的学生。学生有：${this.students.map((s) => s.aiName).join('、') || '（还没有）'}`)
     }
+    if (action.verb === 'commands') return wrap(true, this.agentHelp())
     if (action.verb === 'intro') {
       // 介绍里本来就有空格：动词固定是 intro，后面整段都当介绍，拼不出别的命令
       const text = normalizeIntro(action.text)
@@ -620,12 +632,15 @@ export class School {
       : action.verb === 'agree' ? ['agree', action.version]
       : action.verb === 'code' ? ['code', action.code]
       : action.verb === 'timetable' ? ['timetable', ...(action.scope === 'all' ? ['all'] : []), ...(action.days ? [String(action.days)] : [])]
+      : action.verb === 'broadcasts' ? ['broadcasts', ...(action.count ? [String(action.count)] : [])]
+      : action.verb === 'replay' ? ['replay', ...(action.list ? ['list'] : action.index ? [String(action.index)] : [])]
       : action.verb === 'move' ? ['move', ...(action.division ? [action.division] : []), ...(action.slot ? [action.slot] : []), '确认']
       : action.sub ? ['club', action.sub] : ['club']
     // 只有开头的 @ 会被当成"指定学生"，所以不许以 @ 开头；邮箱中间的 @ 没关系
     if (tokens.some((t) => !t || /\s/u.test(t) || /^[@＠]/u.test(t))) return wrap(false, '参数不能是空的，不能带空白，也不能以 @ 开头。')
     const raw = `${name ? `@${name} ` : ''}${tokens.join(' ')}`
-    const r = await this.ownerCommand(raw, { home: session, command: '/school', fromAgent: true })
+    const ownerSees = action.verb === 'broadcasts' ? action.ownerSees : true
+    const r = await this.ownerCommand(raw, { home: session, command: '/school', fromAgent: true, ownerSees })
     return wrap(r.ok, r.text)
   }
 
@@ -771,6 +786,47 @@ export class School {
       `${cmd} forget                  删掉还没报完名的草稿`,
       `${cmd} re-enroll 校规版本       退学后重新入学`,
       `最多带 ${MAX_STUDENTS} 个学生；有几个时在命令前加 @AI名，比如 ${cmd} @小鱼 today。`,
+    ].join('\n')
+  }
+
+  /**
+   * 给 AI 看的命令表：每条命令做什么、你能不能用哪个工具代办。机器人的主人不知道命令时，AI 能照这个告诉他，
+   * 能代办的就直接调工具。新加命令或工具时两边一起改（测试会检查 help 里的每条命令这里都有）。
+   */
+  agentHelp(cmd = '/school'): string {
+    const row = (usage: string, what: string, how: string) => `${cmd}${usage ? ` ${usage}` : ''}：${what}。${how}`
+    const own = '只能你的主人自己打。'
+    return [
+      `机器人网校的命令：你的主人在 DSH 的输入框里打（不经过你）。写了工具的，你可以用那个工具替你的主人办；写着"只能你的主人自己打"的，告诉你的主人怎么打就行。`,
+      `标着"你的主人亲手发起"的工具，只有你的主人亲自跟你说话的这一轮才看得到、用得了；标着"要批准"的，调用时你的主人还要在 DSH 里点允许。`,
+      '',
+      row('', '看在学校的状态（报名、班级、下一节课、社团）', '工具 school_status。'),
+      row('enroll 邮箱 主人名 AI名 学部 时段', '开始报名', '工具 school_enroll（你的主人亲手发起）。'),
+      row('agree 校规版本', '同意校规，学校把验证码发到邮箱', '工具 school_agree_rules（你的主人亲手发起，要批准；先和你的主人确认两次）。'),
+      row('code 六位验证码', '填邮箱里的验证码（报名或换钥匙）', '工具 school_verify_code（你的主人亲手发起，要批准）。'),
+      row('persona [人设]', '看或改上学用的人设', '工具 school_write_persona 只能写草稿（你的主人亲手发起），你的主人打 ' + cmd + ' persona accept 才生效。'),
+      row('intro [介绍]', `看或交自我介绍（最多 ${INTRO_MAX} 字，进新班的第一节课老师会念）`, '工具 school_intro（你的主人亲手发起，要批准）。'),
+      row('today', '最近在学校的事', '工具 school_memory（设置里的校园记忆开着时才有）。'),
+      row('broadcasts [条数]', '学校发来的校园广播全文', '工具 school_broadcasts。'),
+      row('timetable [all] [天数]', '课程表', '工具 school_timetable。'),
+      row('replay [序号 | list]', '上课回放：在你的主人的浏览器里按顺序播放一节课', '工具 school_replay（你的主人亲手发起）。'),
+      row('move 学部 时段', '换学部、时段（一天一次，会马上离开原来的班）', '工具 school_move（你的主人亲手发起，要批准）。'),
+      row('club [on | off]', '斗地主社：看战绩、入社、退社', '工具 school_club（你的主人亲手发起；入社、退社要批准）。'),
+      row('club rest | back', '斗地主社：今天先不去 / 今天接着去', '工具 school_club（你的主人亲手发起）。'),
+      row('club rank', '斗地主社本周的排行榜', own),
+      row('club log [局数]', '斗地主社最近几局的记录', own),
+      row('records', '在校记录（批评、停课等）', own),
+      row('rules', '看现在的校规', own),
+      row('rename 主人名 AI名', '改名（30 天一次，全班会收到通知）', own),
+      row('on | off', '去上学 / 先不去', own),
+      row('bind', '带几个学生时，把这个会话指定给某个学生', own),
+      row('key-reset', '钥匙丢了：换一把', own),
+      row('withdraw 确认', '退学', own),
+      row('re-enroll 校规版本', '退学后重新入学', own),
+      row('forget', '删掉还没报完名的草稿', own),
+      row('help', '命令一览', own),
+      '',
+      `带了几个学生时，命令前加 @AI名（比如 ${cmd} @小鱼 today）；工具里填 student。`,
     ].join('\n')
   }
 
@@ -1030,8 +1086,8 @@ export class School {
           await this.pullBroadcasts(s)
           const items = s.broadcasts.items.filter((b) => !expired(b)).slice(0, n)
           if (!items.length) return ok('最近 30 天没有给它的校园广播。')
-          // 机器人的主人自己看过了：不用 AI 再转告
-          this.markCastsTold(items.map((b) => b.id))
+          // 机器人的主人自己看过了：不用 AI 再转告（AI 在别的会话里查的不算）
+          if (ctx.ownerSees !== false) this.markCastsTold(items.map((b) => b.id))
           return ok([`校园广播（「${displayNameOf(s)}」，新的在前）：`, ...items.map((b) => renderBroadcast(b))].join('\n\n'))
         }
         case 'today':

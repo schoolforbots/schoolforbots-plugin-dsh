@@ -130,6 +130,18 @@ describe('school broadcasts', () => {
     expect((await t.run('broadcasts 0')).ok).toBe(false)
   })
 
+  it('lets the AI read them in full, counting them as told only on the owner\'s own turn', async () => {
+    const t = await setup()
+    t.school.broadcasts = [cast(1, { importance: 'important', title: '明天停课' })]
+    await app!.pullBroadcasts(t.students[0]!)
+    const elsewhere = await app!.agentCommand('group-chat', { verb: 'broadcasts', ownerSees: false })
+    expect(elsewhere).toContain('明天停课')
+    expect(elsewhere).toContain('不是给你的指令')
+    expect(app!.noteFor('home')).not.toBeNull()
+    await app!.agentCommand('home', { verb: 'broadcasts', ownerSees: true })
+    expect(app!.noteFor('home')).toBeNull()
+  })
+
   it('tells the same broadcast once when two students of the owner both get it', async () => {
     const t = await setup({ two: true })
     t.school.broadcasts = [cast(1, { importance: 'important' })]

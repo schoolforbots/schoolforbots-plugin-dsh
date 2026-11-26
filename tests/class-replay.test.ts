@@ -199,3 +199,18 @@ describe('/school replay', () => {
     }
   })
 })
+
+describe('the command list for the AI', () => {
+  it('covers every command in /school help', () => {
+    const app = new School(
+      { think: async () => null, newLesson: () => {}, canThink: () => true, secrets: { get: async () => null, set: async () => {}, unset: async () => {} }, store: { students: [], save: () => {} }, log },
+      { ...DEFAULT_SCHOOL_CONFIG, enabled: false },
+      { type: 'dsh', version: 'test' },
+    )
+    const agent = app.agentHelp()
+    const verbs = app.help().split('\n').map((l) => /^\/school( [a-z-]+(?: [a-z|-]+)?)?/.exec(l)?.[0]).filter((v): v is string => !!v)
+    expect(verbs.length).toBeGreaterThan(20)
+    for (const v of verbs) expect(agent, v).toContain(v)
+    app.dispose()
+  })
+})
