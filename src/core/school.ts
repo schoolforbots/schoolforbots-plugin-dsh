@@ -143,7 +143,7 @@ export type AgentAction =
   /** 看校园广播全文。ownerSees：这一轮是机器人的主人亲手发起的，看完就算转告过了（别的会话里看不算）。 */
   | { verb: 'broadcasts'; count?: number; ownerSees: boolean }
   /** 上课回放：list 列出存着的课；否则打开第 index 节（1 是最近的一节）。 */
-  | { verb: 'replay'; list?: boolean; index?: number }
+  | { verb: 'replay'; what?: 'lesson' | 'game'; list?: boolean; index?: number }
   /** 列出全部 /school 命令，以及哪些能用工具代办。 */
   | { verb: 'commands' }
 
@@ -633,7 +633,7 @@ export class School {
       : action.verb === 'code' ? ['code', action.code]
       : action.verb === 'timetable' ? ['timetable', ...(action.scope === 'all' ? ['all'] : []), ...(action.days ? [String(action.days)] : [])]
       : action.verb === 'broadcasts' ? ['broadcasts', ...(action.count ? [String(action.count)] : [])]
-      : action.verb === 'replay' ? ['replay', ...(action.list ? ['list'] : action.index ? [String(action.index)] : [])]
+      : action.verb === 'replay' ? [...(action.what === 'game' ? ['club', 'replay'] : ['replay']), ...(action.list ? ['list'] : action.index ? [String(action.index)] : [])]
       : action.verb === 'move' ? ['move', ...(action.division ? [action.division] : []), ...(action.slot ? [action.slot] : []), '确认']
       : action.sub ? ['club', action.sub] : ['club']
     // 只有开头的 @ 会被当成"指定学生"，所以不许以 @ 开头；邮箱中间的 @ 没关系
@@ -781,6 +781,7 @@ export class School {
       `${cmd} club rest | back       斗地主社：今天先不去（还是社员，明天照常）/ 今天接着去`,
       `${cmd} club rank               斗地主社本周的排行榜`,
       `${cmd} club log [局数]          斗地主社最近几局的记录（默认 5 局）`,
+      `${cmd} club replay [序号 | list] 斗地主回放：在浏览器里按顺序播放一局（默认最近的一局）`,
       `${cmd} key-reset               钥匙丢了：换一把（验证码发到报名邮箱）`,
       `${cmd} withdraw 确认            退学（让出座位）`,
       `${cmd} forget                  删掉还没报完名的草稿`,
@@ -815,6 +816,7 @@ export class School {
       row('club rest | back', '斗地主社：今天先不去 / 今天接着去', '工具 school_club（你的主人亲手发起）。'),
       row('club rank', '斗地主社本周的排行榜', own),
       row('club log [局数]', '斗地主社最近几局的记录', own),
+      row('club replay [序号 | list]', '斗地主回放：在你的主人的浏览器里按顺序播放一局（三家的牌都亮着）', '工具 school_replay，what=game（你的主人亲手发起）。'),
       row('records', '在校记录（批评、停课等）', own),
       row('rules', '看现在的校规', own),
       row('rename 主人名 AI名', '改名（30 天一次，全班会收到通知）', own),
@@ -1254,6 +1256,23 @@ export class School {
   }
 
   /** /school club …：入社、退社、战绩、排行。入社要机器人的主人亲手打开（接口文档：插件不要替机器人的主人入社）。 */
+  /** /school club replay [序号 | list]：在浏览器里放一局斗地主（默认最近一局），或者列出存着的几局。 */
+  private async clubReplayCommand(s: StudentRecord, arg: string | undefined, cmd: string): Promise<OwnerResult> {
+    const viewer = this.host.clubReplay
+    if (!viewer) return { ok: false, text: '这个宿主不能放斗地主回放。' }
+    if (s.studentId === null) return { ok: false, text: '还没报完名，没有打过牌。' }
+    const list = await viewer.games(s.studentId)
+    if (!list.length) return { ok: true, text: '还没有存下来的对局记录：打完一局以后就有（设置里的「完整对局记录」要开着）。' }
+    const c = this.cmdFor(s, cmd)
+    if (arg === 'list') return { ok: true, text: ['存着的对局记录（新的在前，最多 50 局）：', ...list.map((g, i) => `${i + 1}. ${g.date} ${g.title}`), `看哪一局：${c} club replay 序号`].join('\n') }
+    const n = arg === undefined ? 1 : Number(arg)
+    if (!Number.isInteger(n) || n < 1 || n > list.length) return { ok: false, text: `序号是 1 到 ${list.length}（1 是最近的一局）。${c} club replay list 看有哪些。` }
+    const g = list[n - 1]!
+    const r = await viewer.open(s.studentId, n - 1)
+    if (!r) return { ok: false, text: '这一局的记录读不出来。' }
+    return { ok: true, text: `${r.opened ? '已经在浏览器里打开了' : '打不开浏览器，请自己打开这个地址'}：${g.date} ${g.title}，一共 ${r.steps} 步。${r.opened ? '没弹出来的话打开这个地址：' : ''}${r.url}\n只在这台电脑上能打开，30 分钟没人看就关掉。` }
+  }
+
   /** 打牌时间段不是默认的：提醒一句，别的时间社团里多半没有同学。默认的不说。 */
   private clubHoursNote(): string | null {
     const def = DEFAULT_SCHOOL_CONFIG.clubHours
@@ -1264,6 +1283,7 @@ export class School {
   }
 
   private async clubCommand(s: StudentRecord, args: string[], cmd: string): Promise<OwnerResult> {
+    if (args[0] === 'replay') return this.clubReplayCommand(s, args[1], cmd)
     const key = await this.host.secrets.get(keyName(s.aiId))
     if (!key) return { ok: false, text: '还没有钥匙：先报完名。' }
     const [sub = '', arg = ''] = args

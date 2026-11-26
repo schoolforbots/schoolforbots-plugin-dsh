@@ -9,6 +9,8 @@ import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
 import { buildClassReplay } from '../core/class-replay.js'
+import { buildClubReplay } from '../core/club-replay.js'
+import { clubReplayPage } from './club-replay-page.js'
 import type { Logger } from './host.js'
 import { replayPage } from './replay-page.js'
 import { REPLAY_DIRS } from './replays.js'
@@ -91,6 +93,28 @@ export function createReplayViewer(o: { dir: string; log: Logger; open?: (url: s
   }
 
   /** 某个学生（学号）存着的上课记录，新的在前。 */
+  /** 某个学生（学号）存着的斗地主对局记录，新的在前。title 是"第几局 · 地主/农民 · 输赢 · 得分"。 */
+  async function games(studentId: number): Promise<SavedLesson[]> {
+    const root = join(o.dir, REPLAY_DIRS.club)
+    const out: SavedLesson[] = []
+    for (const day of await readdir(root).catch(() => [] as string[])) {
+      for (const f of await readdir(join(root, day)).catch(() => [] as string[])) {
+        if (!f.endsWith('.jsonl') || !f.startsWith(`${studentId}-`)) continue
+        const path = join(root, day, f)
+        const st = await stat(path).catch(() => null)
+        if (!st) continue
+        const head = await readHead(path)
+        const g = (head?.game ?? {}) as Record<string, unknown>
+        const role = g.role === 'landlord' ? '地主' : g.role === 'farmer' ? '农民' : ''
+        const result = g.outcome === 'no_landlord' ? '作废' : typeof g.won === 'boolean' ? (g.won ? '赢' : '输') : ''
+        const score = typeof g.score === 'number' ? `${g.score > 0 ? '+' : ''}${g.score}` : ''
+        const title = [`第 ${String(head?.gameId ?? '?')} 局`, role, result, score].filter(Boolean).join(' · ')
+        out.push({ path, date: day, name: f.slice(0, -'.jsonl'.length), title, className: '', at: st.mtimeMs })
+      }
+    }
+    return out.sort((a, b) => b.at - a.at)
+  }
+
   async function lessons(studentId: number): Promise<SavedLesson[]> {
     const root = join(o.dir, REPLAY_DIRS.lesson)
     const out: SavedLesson[] = []
@@ -135,6 +159,7 @@ export function createReplayViewer(o: { dir: string; log: Logger; open?: (url: s
 
   return {
     lessons,
+    games,
     /** 做好一节课的回放页面，起服务、开浏览器。返回地址和浏览器打开了没有。 */
     async open(lesson: SavedLesson): Promise<{ url: string; opened: boolean; steps: number }> {
       const replay = buildClassReplay(await readRows(lesson.path))
@@ -144,6 +169,17 @@ export function createReplayViewer(o: { dir: string; log: Logger; open?: (url: s
       touch()
       const opened = await (o.open ?? openBrowser)(url)
       if (!opened) o.log.info(`上课回放：打不开浏览器，地址是 ${url}`)
+      return { url, opened, steps: replay.steps.length }
+    },
+    /** 做好一局斗地主的回放页面，起服务、开浏览器。 */
+    async openGame(game: SavedLesson): Promise<{ url: string; opened: boolean; steps: number }> {
+      const replay = buildClubReplay(await readRows(game.path))
+      const token = randomBytes(16).toString('hex')
+      const url = `${await ensureServer()}/r/${token}/`
+      pages.set(token, clubReplayPage(replay))
+      touch()
+      const opened = await (o.open ?? openBrowser)(url)
+      if (!opened) o.log.info(`斗地主回放：打不开浏览器，地址是 ${url}`)
       return { url, opened, steps: replay.steps.length }
     },
     close,
