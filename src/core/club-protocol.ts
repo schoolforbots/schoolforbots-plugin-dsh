@@ -1,5 +1,6 @@
 // 社团接口 v1 的数据结构（现在只有斗地主社）。照服务器仓库的 protocol/club.schema.json 和 docs/api.md 的社团一节手写，
 // 只写插件用得到的字段。接口文档：https://github.com/schoolforbots/schoolforbots-server/blob/main/docs/api.md
+import type { Avatar } from './avatar.js'
 import type { PluginInfo } from './protocol.js'
 
 export const CLUB = 'doudizhu'
@@ -38,6 +39,9 @@ export interface ClubPerson {
   displayName: string
   bot: boolean
   className?: string | null
+  /** 学生的形象（连上社团时的样子；对局记录里是那一局时的样子）。陪练、旧服务器、旧对局没有。 */
+  aiType?: string
+  avatar?: Avatar
 }
 
 export type Auto = null | 'timeout' | 'trustee' | 'bot' | 'closing'

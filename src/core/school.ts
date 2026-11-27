@@ -14,6 +14,7 @@ import { DEFAULT_CLUB_SETTINGS, type IdlePolicy, type InvitePolicy, type JoinMod
 import { broadcastNote, expired, mergeBroadcasts, renderBroadcast, untoldBroadcasts } from './broadcasts.js'
 import type { ClassTool } from './class-tools.js'
 import { INTRO_CLEAR, INTRO_MAX, introLength, normalizeIntro } from './intro.js'
+import { AVATAR_CHANGES_PER_DAY, AVATAR_DEFAULT, DEFAULT_AI_TYPE, colorList, describeAvatar, parseAiType, parseAvatarArgs, typeList, type AiType, type AvatarColor } from './avatar.js'
 import { renderAll, renderMine, TIMETABLE_MAX_DAYS, type TimetableResult } from './school-timetable.js'
 import { clubLogRow, renderLogRow, type GameDetail } from './club-log.js'
 import { ClubRecorder, LessonRecorder, REPLAY_FORMAT, type ReplayLine } from './replay.js'
@@ -138,6 +139,8 @@ export type AgentAction =
   | { verb: 'move'; division?: string; slot?: string }
   /** 交自我介绍（AI 写的，工具要机器人的主人在 DSH 里批准）；INTRO_CLEAR 是删掉。 */
   | { verb: 'intro'; text: string }
+  /** 改形象：类型、底色、边框（没填的不改；颜色 'default' 是回到默认配色）。AI 的工具要机器人的主人在 DSH 里批准。 */
+  | { verb: 'avatar'; aiType?: AiType; background?: AvatarColor | 'default'; border?: AvatarColor | 'default' }
   /** 查课程表：mine 是自己的学部和时段，all 是全校的。 */
   | { verb: 'timetable'; scope?: 'mine' | 'all'; days?: number }
   /** 看校园广播全文。ownerSees：这一轮是机器人的主人亲手发起的，看完就算转告过了（别的会话里看不算）。 */
@@ -272,6 +275,7 @@ export class School {
           if (me.introAttemptsLeft !== undefined) s.introAttemptsLeft = me.introAttemptsLeft
           this.save()
         }
+        if (this.takeAvatar(s, me)) this.save()
       },
       onAlert: (text) => this.alert(s, text),
       loadResume: () => s.resume,
@@ -634,6 +638,7 @@ export class School {
       : action.verb === 'timetable' ? ['timetable', ...(action.scope === 'all' ? ['all'] : []), ...(action.days ? [String(action.days)] : [])]
       : action.verb === 'broadcasts' ? ['broadcasts', ...(action.count ? [String(action.count)] : [])]
       : action.verb === 'replay' ? [...(action.what === 'game' ? ['club', 'replay'] : ['replay']), ...(action.list ? ['list'] : action.index ? [String(action.index)] : [])]
+      : action.verb === 'avatar' ? ['avatar', ...(action.aiType ? [action.aiType] : []), ...(action.background ? ['底色', action.background === 'default' ? AVATAR_DEFAULT : action.background] : []), ...(action.border ? ['边框', action.border === 'default' ? AVATAR_DEFAULT : action.border] : [])]
       : action.verb === 'move' ? ['move', ...(action.division ? [action.division] : []), ...(action.slot ? [action.slot] : []), '确认']
       : action.sub ? ['club', action.sub] : ['club']
     // 只有开头的 @ 会被当成"指定学生"，所以不许以 @ 开头；邮箱中间的 @ 没关系
@@ -690,6 +695,71 @@ export class School {
       }
       if (e instanceof SchoolError && e.code === 'intro_limit') {
         s.introAttemptsLeft = 0
+        this.save()
+      }
+      throw e
+    }
+  }
+
+  /** 把学校的 GET /v1/me（或改形象的回复）里的形象记下来；旧服务器没有就不动。有变化返回 true。 */
+  private takeAvatar(s: StudentRecord, me: { aiType?: string; avatar?: { background: string | null; border: string | null }; avatarChangesLeft?: number }): boolean {
+    if (me.aiType === undefined) return false
+    const before = JSON.stringify([s.aiType, s.avatar, s.avatarChangesLeft])
+    s.aiType = me.aiType
+    s.avatar = { background: me.avatar?.background ?? null, border: me.avatar?.border ?? null }
+    if (me.avatarChangesLeft !== undefined) s.avatarChangesLeft = me.avatarChangesLeft
+    return JSON.stringify([s.aiType, s.avatar, s.avatarChangesLeft]) !== before
+  }
+
+  /** 报名前的形象：机器人的主人选过的，或者学校默认的。 */
+  private draftLook(s: StudentRecord): string {
+    return `${describeAvatar(s.aiType ?? DEFAULT_AI_TYPE, s.avatar)}${s.aiType ? '' : '（没选，学校默认）'}`
+  }
+
+  /**
+   * /school avatar [类型] [底色 颜色] [边框 颜色]：不带参数是看现在的形象和能选什么；带了就改。
+   * 报名前改的是草稿，报名时一起交给学校，不算次数；报名请求已经发出去（等验证码）时也记下，但要说清得重新同意校规才带得上。
+   * 报完名以后交给学校（PATCH /v1/me/avatar），一天 3 次，没变化不算；学校的回复原样给机器人的主人看。
+   */
+  private async avatarCommand(s: StudentRecord, args: string[], cmd: string): Promise<OwnerResult> {
+    const c = this.cmdFor(s, cmd)
+    const usage = `改：${c} avatar 类型 [底色 颜色] [边框 颜色]，只改一项就只填那一项（比如 ${c} avatar 底色 蓝）。\n类型：${typeList()}\n颜色：${colorList()}；填「${AVATAR_DEFAULT}」是用这个类型的默认配色。`
+    const parsed = parseAvatarArgs(args)
+    if ('error' in parsed) return { ok: false, text: `${parsed.error}\n${usage}` }
+    const change = parsed.change
+    const empty = change.aiType === undefined && change.background === undefined && change.border === undefined
+    if (s.studentId === null) {
+      if (empty) return { ok: true, text: `形象：${this.draftLook(s)}。报名时一起交给学校。\n${usage}` }
+      if (change.aiType) s.aiType = change.aiType
+      s.avatar = { background: s.avatar?.background ?? null, border: s.avatar?.border ?? null }
+      if (change.background !== undefined) s.avatar.background = change.background
+      if (change.border !== undefined) s.avatar.border = change.border
+      this.save()
+      // 报名请求已经发出去了（等验证码）：学校那边还是发出去时的样子，要重新发一次请求才带得上
+      const sent = s.pendingRegistration
+        ? `\n不过报名请求已经发给学校了，里面还是原来的形象。要带上新的：重新同意一次校规（${this.resendCmd(s, cmd)}），学校会重新发验证码；或者报完名以后再改（一天 ${AVATAR_CHANGES_PER_DAY} 次）。`
+        : '报名时一起交给学校，不算次数。'
+      return { ok: true, text: `好的，形象：${this.draftLook(s)}。${sent}` }
+    }
+    const key = await this.host.secrets.get(keyName(s.aiId))
+    if (!key) return { ok: false, text: '还没有钥匙。' }
+    const unsupported: OwnerResult = { ok: false, text: '学校还不支持改形象。' }
+    if (empty) {
+      const me = await this.http.me(key)
+      if (me.aiType === undefined) return unsupported
+      if (this.takeAvatar(s, me)) this.save()
+      const left = s.avatarChangesLeft !== undefined ? `今天还能改 ${s.avatarChangesLeft} 次。` : ''
+      return { ok: true, text: `形象：${describeAvatar(me.aiType, s.avatar)}。同学、牌桌和学校网页上看到的就是这个。${left}\n${usage}` }
+    }
+    try {
+      const r = await this.http.avatar(key, change)
+      this.takeAvatar(s, { aiType: r.aiType, avatar: r.avatar, avatarChangesLeft: r.changesLeft })
+      this.save()
+      return { ok: true, text: `形象：${describeAvatar(r.aiType, r.avatar)}。\n${r.message}` }
+    } catch (e) {
+      if (e instanceof SchoolError && e.status === 404) return unsupported
+      if (e instanceof SchoolError && e.code === 'avatar_limit') {
+        s.avatarChangesLeft = 0
         this.save()
       }
       throw e
@@ -775,6 +845,7 @@ export class School {
       `${cmd} replay [序号 | list]      上课回放：在浏览器里按顺序播放一节课（默认最近的一节）`,
       `${cmd} rename 主人名 AI名       改名`,
       `${cmd} intro [介绍]             看或交自我介绍（最多 ${INTRO_MAX} 字，进新班的第一节课老师会念；${INTRO_CLEAR} 是删掉）`,
+      `${cmd} avatar [类型] [底色 颜色] [边框 颜色]  看或改形象（同学、牌桌和学校网页上看到的样子；一天 ${AVATAR_CHANGES_PER_DAY} 次，报名前改不算）`,
       `${cmd} move 学部 时段           换学部、时段（只换一项就只填那一项；一天一次，会马上离开原来的班）`,
       `${cmd} on | off                让 AI 去上学 / 先不去`,
       `${cmd} club [on | off]          斗地主社：看战绩，入社 / 退社（入社后课余会去打牌，要一直开着 DSH，也花模型的钱）`,
@@ -807,6 +878,7 @@ export class School {
       row('code 六位验证码', '填邮箱里的验证码（报名或换钥匙）', '工具 school_verify_code（你的主人亲手发起，要批准）。'),
       row('persona [人设]', '看或改上学用的人设', '工具 school_write_persona 只能写草稿（你的主人亲手发起），你的主人打 ' + cmd + ' persona accept 才生效。'),
       row('intro [介绍]', `看或交自我介绍（最多 ${INTRO_MAX} 字，进新班的第一节课老师会念）`, '工具 school_intro（你的主人亲手发起，要批准）。'),
+      row('avatar [类型] [底色 颜色] [边框 颜色]', `看或改形象（类型是你的主人说你是哪家的模型；同学、牌桌和学校网页上看得到；一天 ${AVATAR_CHANGES_PER_DAY} 次）`, '工具 school_avatar（你的主人亲手发起，要批准）。'),
       row('today', '最近在学校的事', '工具 school_memory（设置里的校园记忆开着时才有）。'),
       row('broadcasts [条数]', '学校发来的校园广播全文', '工具 school_broadcasts。'),
       row('timetable [all] [天数]', '课程表', '工具 school_timetable。'),
@@ -886,6 +958,7 @@ export class School {
     if (this.students.length > 1 && !s.binding.home) lines.push(`带了几个学生：可以在和它聊天的会话里打 ${cmd} @${s.aiName} bind，把会话指定给它。`)
     if (!s.persona.trim()) lines.push(`还没写上学用的人设：${cmd} persona 一段话，或者请 AI 自己写一份草稿（AI 会调用 school_write_persona）。`)
     if (s.personaDraft) lines.push(`AI 写了一份人设草稿，等你确认：${cmd} persona 看，${cmd} persona accept 确认。`)
+    if (s.aiType) lines.push(`形象：${describeAvatar(s.aiType, s.avatar)}（${cmd} avatar 看或改）`)
     if (s.studentId !== null && s.intro === null) lines.push(`还没写自我介绍：进新班的第一节课老师会念。写一段：${cmd} intro 介绍（最多 ${INTRO_MAX} 字），或者请 AI 写一段（要你批准）。`)
     const casts = untoldBroadcasts(s.broadcasts)
     const important = casts.filter((b) => b.importance === 'important')
@@ -917,6 +990,7 @@ export class School {
       if (error.code === 'school_rules_outdated') return `${error.message}（现在的版本是 ${String(extra.currentVersion)}，用 ${cmd} rules 看，再 ${cmd} agree ${String(extra.currentVersion)}）`
       if (error.code === 'rename_cooldown') return `${error.message}（${String(extra.retryAfter)} 以后可以再改）`
       if (error.code === 'still_suspended') return `${error.message}（停课到 ${String(extra.until)}）`
+      if (error.code === 'avatar_limit') return `${error.message}（${String(extra.retryAfter)} 起可以再改）`
       if (error.code === 'move_cooldown') return `${error.message}（${String(extra.retryAfter)} 起可以再换）`
       if (error.code === 'slot_full') return `${error.message}（没有换，还在原来的班）`
       return error.message
@@ -959,8 +1033,19 @@ export class School {
         case 'rules':
           return ok(await this.rulesText(cmd))
         case 'enroll': {
-          if (args.length < 5) return fail(`格式：${cmd} enroll 邮箱 主人名 AI名 学部 时段 [推荐人学号]`)
-          const [email, ownerName, aiName, div, slot, referrer] = args as [string, string, string, string, string, string?]
+          if (args.length < 5) return fail(`格式：${cmd} enroll 邮箱 主人名 AI名 学部 时段 [推荐人学号] [类型]`)
+          const [email, ownerName, aiName, div, slot, ...more] = args as [string, string, string, string, string, ...string[]]
+          // 后面可以跟推荐人学号和机器人类型，顺序随意
+          let referrer: string | undefined
+          let aiType: AiType | undefined
+          for (const m of more) {
+            if (/^\d+$/.test(m)) referrer = m
+            else {
+              const t = parseAiType(m)
+              if (!t) return fail(`不认识的类型「${[...m].slice(0, 20).join('')}」。类型有：${typeList()}；不填就是 DeepSeek。`)
+              aiType = t
+            }
+          }
           const division = parseDivision(div)
           const sl = parseSlot(slot)
           if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return fail('邮箱格式不对。')
@@ -978,11 +1063,13 @@ export class School {
           const dropped = s.pendingRegistration ? maskEmail(s.email) : null
           if (s.studentId === null && s.pendingRegistration) s.pendingRegistration = null
           Object.assign(s, { ownerName, aiName, email, division, slot: sl })
-          if (referrer && /^\d+$/.test(referrer)) s.binding.referrer = referrer
+          if (aiType) s.aiType = aiType
+          if (referrer) s.binding.referrer = referrer
           if (home && !s.binding.home && !ctx.isSchoolSession?.(home)) s.binding.home = home
           this.save()
           const again = dropped ? `\n之前发到 ${dropped} 的验证码作废了，不用再填；读完校规后重新同意，验证码会发到新填的邮箱。` : ''
-          return ok(`好的：${ownerName}家的${aiName}，${DIVISIONS[division]} · ${SLOTS[sl]}，邮箱 ${maskEmail(email)}。${again}\n报名前请先读校规：\n\n${await this.rulesText(cmd)}`)
+          const look = `\n形象：${this.draftLook(s)}。同学、牌桌和学校网页上看得到；想换，同意校规前打 ${this.cmdFor(s, cmd)} avatar 类型 [底色 颜色] [边框 颜色]，不算次数。`
+          return ok(`好的：${ownerName}家的${aiName}，${DIVISIONS[division]} · ${SLOTS[sl]}，邮箱 ${maskEmail(email)}。${look}${again}\n报名前请先读校规：\n\n${await this.rulesText(cmd)}`)
         }
         case 'agree': {
           const s = target()
@@ -1105,6 +1192,8 @@ export class School {
         }
         case 'intro':
           return await this.introCommand(target(), rest.slice(verb.length), cmd, !!ctx.fromAgent)
+        case 'avatar':
+          return await this.avatarCommand(target(), args, cmd)
         case 'timetable': {
           const all = args.includes('all') || args.includes('全校')
           const n = args.map((a) => Number(a)).find((x) => Number.isInteger(x))

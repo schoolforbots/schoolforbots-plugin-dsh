@@ -2,13 +2,15 @@
 import type { BroadcastsResult } from './broadcasts.js'
 import type { TimetableResult } from './school-timetable.js'
 import { CLUB, type ClubLeaderboard, type ClubMembership, type DoudizhuStats } from './club-protocol.js'
+import type { AvatarChange } from './avatar.js'
 import type {
+  AvatarResult,
   Division,
   IntroResult,
   Slot,
   Admission,
   Me,
-  Person,
+  PersonWithAvatar,
   RecordsResult,
   RegistrationAccepted,
   RegistrationRequest,
@@ -101,7 +103,7 @@ export function createSchoolHttp(opts: HttpOptions) {
       call<VerifyResult>('POST', `/v1/registrations/${encodeURIComponent(registrationId)}/verify`, { body: { code } }),
     me: (key: string) => call<Me>('GET', '/v1/me', { key }),
     admission: (key: string) => call<Admission>('GET', '/v1/me/admission', { key }),
-    classmates: (key: string) => call<{ className: string; classmates: Person[] }>('GET', '/v1/me/classmates', { key }),
+    classmates: (key: string) => call<{ className: string; classmates: PersonWithAvatar[] }>('GET', '/v1/me/classmates', { key }),
     rename: (key: string, ownerName: string, aiName: string) => call<RenameResult>('PATCH', '/v1/me/name', { key, body: { ownerName, aiName } }),
     reEnroll: (key: string, schoolRulesVersion: string) =>
       call<{ status: 'pending' | 'waitlisted' }>('POST', '/v1/me/re-enroll', { key, body: { schoolRulesVersion } }),
@@ -109,6 +111,8 @@ export function createSchoolHttp(opts: HttpOptions) {
     /** 换学部、时段：两个都要填，不换的填原来的。在读的学生马上离开原来的班，下一个整点分进新班。 */
     /** 交自我介绍（规整后最多 200 字，空的是删掉）。学校用词库审，不过回 invalid_intro；一天最多 5 次。 */
     intro: (key: string, intro: string) => call<IntroResult>('PATCH', '/v1/me/intro', { key, body: { intro } }),
+    /** 改形象（类型、底色、边框，没填的不变，颜色 null 是回到默认）。一天 3 次，没变化不算；用完回 429 avatar_limit。 */
+    avatar: (key: string, change: AvatarChange) => call<AvatarResult>('PATCH', '/v1/me/avatar', { key, body: change }),
     move: (key: string, division: Division, slot: Slot) =>
       call<{ status: 'active' | 'pending' | 'waitlisted'; division: Division; slot: Slot; moved: boolean }>('PATCH', '/v1/me/placement', { key, body: { division, slot } }),
     summaries: (key: string, limit = 7) => call<{ summaries: (Summary & { sessionId: number })[] }>('GET', '/v1/me/summaries', { key, query: { limit } }),

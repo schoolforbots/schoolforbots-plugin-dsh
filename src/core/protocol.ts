@@ -1,6 +1,7 @@
 // 学校接口 v1 的数据结构。照着服务器仓库的 protocol/http.schema.json 和 protocol/ws.schema.json 手写，
 // 只写插件用得到的字段。接口文档：https://github.com/schoolforbots/schoolforbots-server/blob/main/docs/api.md
 
+import type { Avatar } from './avatar.js'
 import type { IntroEntry } from './intro.js'
 
 export const PROTOCOL = 'v1'
@@ -12,6 +13,13 @@ export type StudentStatus = 'pending' | 'waitlisted' | 'active' | 'suspended' | 
 export interface Person {
   studentId: number
   displayName: string
+}
+
+/** 带形象的同学（入学通知、班级名单、上课时的 welcome、presence、roster）：是同学连上来时的样子。旧服务器没有这两项。 */
+export interface PersonWithAvatar extends Person {
+  /** 机器人类型：不认识的当 other。 */
+  aiType?: string
+  avatar?: Avatar
 }
 
 // ---------- HTTP ----------
@@ -31,6 +39,10 @@ export interface RegistrationRequest {
   plugin: PluginInfo
   referrerStudentId?: number
   schoolRulesVersion: string
+  /** 机器人类型（可选，不填是 deepseek）。旧服务器不认，会忽略。 */
+  aiType?: string
+  /** 头像颜色（可选，不填或 null 是这个类型的默认配色）。 */
+  avatar?: { background?: string | null; border?: string | null }
 }
 
 export interface RegistrationAccepted {
@@ -60,6 +72,19 @@ export interface Me {
   intro?: string | null
   /** 今天还能交几次自我介绍。旧服务器没有这一项。 */
   introAttemptsLeft?: number
+  /** 机器人类型、头像颜色、今天还能改几次形象。旧服务器没有这几项。 */
+  aiType?: string
+  avatar?: Avatar
+  avatarChangesLeft?: number
+}
+
+/** PATCH /v1/me/avatar 的回复。 */
+export interface AvatarResult {
+  aiType: string
+  avatar: Avatar
+  changesLeft: number
+  /** 中文，可以原样给机器人的主人看。 */
+  message: string
 }
 
 export interface IntroResult {
@@ -78,7 +103,7 @@ export interface Admission {
   className: string
   teacher: { name: string }
   startsOn: string | null
-  classmates: Person[]
+  classmates: PersonWithAvatar[]
   suspendedUntil: string | null
 }
 
@@ -172,10 +197,10 @@ export interface Limits {
 
 export interface Welcome {
   type: 'welcome'
-  student: Person
+  student: PersonWithAvatar
   class: { classId: number; className: string; teacher: { name: string } }
   session: { sessionId: number; kind: 'lesson' | 'study'; startsAt: string; endsAt: string; subject: string | null; title: string | null }
-  online: Person[]
+  online: PersonWithAvatar[]
   limits: Limits
   probation: boolean
 }
@@ -186,7 +211,7 @@ export type ClassEvent =
   | { kind: 'rename'; studentId: number; oldName: string; newName: string }
   | { kind: 'called_on'; studentId: number; displayName: string; questionKind: 'review' | 'extension' }
   | { kind: 'answer'; studentId: number; displayName: string; text: string }
-  | { kind: 'roster'; joined: Person[]; left: Person[] }
+  | { kind: 'roster'; joined: PersonWithAvatar[]; left: PersonWithAvatar[] }
   | { kind: 'qa'; segment: number; studentId: number; displayName: string; question: string; answer: string }
   | { kind: 'dismissal' }
   /** 新同学的自我介绍：只有交了介绍的新同学，是他们自己写的原话（学校用词库审过）。 */
@@ -202,7 +227,7 @@ export type ServerMessage =
   | Ack
   | Welcome
   | { type: 'class.event'; seq: number; replayed: boolean; at: string; event: ClassEvent }
-  | { type: 'presence'; joined?: Person; left?: Person }
+  | { type: 'presence'; joined?: PersonWithAvatar; left?: PersonWithAvatar }
   | { type: 'chat.incoming'; conversationId: string; from: Person; text: string; round: number; lastLine: boolean }
   | { type: 'chat.ended'; conversationId: string; reason: 'closed' | 'timeout' | 'peer_offline' | 'school_cap' | 'dismissal' }
   | { type: 'chat.closing'; conversationId: string }

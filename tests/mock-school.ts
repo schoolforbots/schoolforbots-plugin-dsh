@@ -34,6 +34,8 @@ export interface MockSchool {
   broadcasts: Broadcast[]
   /** 自我介绍：null 是这所学校还不支持（GET /v1/me 不带、PATCH 回 404）。 */
   intro: { text: string | null; left: number } | null
+  /** 形象：null 是这所学校还不支持（GET /v1/me 不带、PATCH 回 404）。默认 null。 */
+  avatar: { aiType: string; background: string | null; border: string | null; left: number } | null
   /** 课程表（GET /v1/timetable）：null 是这所学校还没有这个接口（404）。 */
   timetable: TimetableResult | null
   close: () => Promise<void>
@@ -50,6 +52,7 @@ export async function startMockSchool(): Promise<MockSchool> {
   school.clubMember = false
   school.broadcasts = []
   school.intro = { text: null, left: 5 }
+  school.avatar = null
   school.timetable = null
   school.me = {
     studentId: 7,
@@ -132,7 +135,24 @@ export async function startMockSchool(): Promise<MockSchool> {
       return json(200, { key: school.key })
     }
     if (path?.startsWith('/v1/me') && !authed) return json(401, { error: { code: 'unauthorized', message: '钥匙不对。' } })
-    if (path === '/v1/me') return json(200, school.intro ? { ...school.me, intro: school.intro.text, introAttemptsLeft: school.intro.left } : school.me)
+    if (path === '/v1/me') {
+      const av = school.avatar
+      return json(200, {
+        ...school.me,
+        ...(school.intro ? { intro: school.intro.text, introAttemptsLeft: school.intro.left } : {}),
+        ...(av ? { aiType: av.aiType, avatar: { background: av.background, border: av.border }, avatarChangesLeft: av.left } : {}),
+      })
+    }
+    if (path === '/v1/me/avatar' && req.method === 'PATCH' && school.avatar) {
+      const av = school.avatar
+      const b = (body ?? {}) as { aiType?: string; background?: string | null; border?: string | null }
+      const next = { ...av, ...(b.aiType !== undefined ? { aiType: b.aiType } : {}), ...(b.background !== undefined ? { background: b.background } : {}), ...(b.border !== undefined ? { border: b.border } : {}) }
+      const reply = () => ({ aiType: av.aiType, avatar: { background: av.background, border: av.border }, changesLeft: av.left })
+      if (next.aiType === av.aiType && next.background === av.background && next.border === av.border) return json(200, { ...reply(), message: `没有改动。今天还能改 ${av.left} 次。` })
+      if (av.left <= 0) return json(429, { error: { code: 'avatar_limit', message: '今天改形象的 3 次用完了。', retryAfter: '2026-12-02' } })
+      Object.assign(av, next, { left: av.left - 1 })
+      return json(200, { ...reply(), message: `改好了。今天还能改 ${av.left} 次。` })
+    }
     if (path === '/v1/me/intro' && req.method === 'PATCH' && school.intro) {
       const st = school.intro
       const text = String((body as { intro?: unknown })?.intro ?? '').trim().replace(/\s+/g, ' ')
