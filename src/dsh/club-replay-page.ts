@@ -1,8 +1,9 @@
 // 斗地主对局回放的网页：牌桌是绿色的台面，自家坐在下面，上家在左、下家在右；每家亮出手里的牌（上帝视角），
 // 桌子中间是这一轮每家出的牌；顶上是第几局、底牌、底分、倍数。叫分、不要、表情冒气泡，出牌的那一家亮起来。
-// 字幕、控制器、节奏、键盘和 #步数 和上课回放一样（replay-shell.ts）。记录里的文字都用 textContent 放进页面。
+// 牌上的花色是插件自己配的（card-suits.ts）。字幕、控制器、节奏、键盘和 #步数 和上课回放一样（replay-shell.ts）。记录里的文字都用 textContent 放进页面。
 import type { ClubReplay } from '../core/club-replay.js'
 import { characterFace, faceOf, pageArt, type Face, type PageArt } from './avatar-look.js'
+import { cardSuits } from './card-suits.js'
 import { replayDocument } from './replay-shell.js'
 
 const CSS = `
@@ -41,8 +42,10 @@ const CSS = `
 .cards, .hand { display:flex; justify-content:center; padding-left:calc(var(--w, var(--cw)) * .3); }
 .hand { flex-wrap:wrap; max-width:100%; row-gap:6px; }
 .card { --w:var(--cw); width:var(--w); height:calc(var(--w) * 1.4); margin-left:calc(var(--w) * -.3); border-radius:calc(var(--w) * .12); background:#fff; border:1px solid #9aa; color:#222; font-weight:700; font-size:calc(var(--w) * .42); display:flex; align-items:flex-start; justify-content:flex-start; padding:3px 4px; box-shadow:-1px 1px 3px rgba(0,0,0,.28); line-height:1; letter-spacing:-.04em; flex:none; }
+.card { flex-direction:column; }
+.card .suit { font-size:.78em; margin-top:.12em; }
+.card.red { color:#c0392b; }
 .card.joker { font-size:calc(var(--w) * .32); writing-mode:vertical-rl; letter-spacing:1px; }
-.card.big { color:#c0392b; }
 .card.back { background:repeating-linear-gradient(45deg, #2d5aa0 0 4px, #24508f 4px 8px); border-color:#fff; margin-left:calc(var(--w) * -.55); }
 #seat-me .card { --w:var(--cwm); }
 #center { grid-column:2; grid-row:2; position:relative; min-height:calc(var(--cwp) * 3.6); }
@@ -80,11 +83,16 @@ const JS = `
   function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
   function initial(name) { var s = String(name || '?').replace(/（陪练）$/, '').replace(/^.*家的/, ''); return Array.from(s)[0] || '?'; }
   function no(id) { return id == null ? '' : '#' + String(id).padStart(4, '0'); }
-  function card(r) {
+  // 花色是插件配的（card-suits.ts），每一步一份，和这一步看得见的牌一一对应
+  var suits = data.suits || [];
+  function card(r, suit) {
     var joker = r === '大王' || r === '小王';
-    return el('span', 'card' + (joker ? ' joker' : '') + (r === '大王' ? ' big' : ''), r);
+    var red = r === '大王' || suit === '♥' || suit === '♦';
+    var c = el('span', 'card' + (joker ? ' joker' : '') + (red ? ' red' : ''), r);
+    if (suit && !joker) c.appendChild(el('span', 'suit', suit));
+    return c;
   }
-  function cards(list, cls) { var d = el('div', cls || 'cards'); list.forEach(function (r) { d.appendChild(card(r)); }); return d; }
+  function cards(list, cls, marks) { var d = el('div', cls || 'cards'); list.forEach(function (r, j) { d.appendChild(card(r, marks && marks[j])); }); return d; }
   function backs(n, cls) { var d = el('div', cls || 'cards'); for (var j = 0; j < n; j++) d.appendChild(el('span', 'card back')); return d; }
 
   document.title = data.title;
@@ -93,7 +101,7 @@ const JS = `
 
   function seatBox(i) { return document.getElementById('seat-' + place[i]); }
 
-  function drawSeat(i, snap, speaking, target) {
+  function drawSeat(i, snap, speaking, target, marks) {
     var s = data.seats[i];
     var box = seatBox(i);
     box.textContent = '';
@@ -116,19 +124,19 @@ const JS = `
     if (snap) {
       box.appendChild(el('div', 'left', '剩 ' + snap.counts[i] + ' 张'));
       var h = snap.hands[i];
-      box.appendChild(h ? cards(h, 'hand') : backs(snap.counts[i], 'hand'));
+      box.appendChild(h ? cards(h, 'hand', marks && marks.hands[i]) : backs(snap.counts[i], 'hand'));
     }
     return box;
   }
 
-  function drawSlot(i, snap, fresh) {
+  function drawSlot(i, snap, fresh, marks) {
     var slot = document.getElementById('slot-' + place[i]);
     slot.textContent = '';
     slot.className = 'slot' + (fresh ? ' fresh' : '');
     var t = snap && snap.table[i];
     if (!t) return;
     if (t.kind === 'pass') slot.appendChild(el('div', 'pass', '不要'));
-    else { slot.appendChild(cards(t.move.cards)); slot.appendChild(el('div', 'left', t.move.name)); }
+    else { slot.appendChild(cards(t.move.cards, null, marks && marks.table[i])); slot.appendChild(el('div', 'left', t.move.name)); }
   }
 
   function clear() {
@@ -140,15 +148,16 @@ const JS = `
     caption.textContent = '';
     var s = k >= 0 ? steps[k] : null;
     var snap = s ? s.snap : null;
+    var marks = s ? suits[k] : null;
     var top = document.getElementById('info');
     top.textContent = snap && snap.base != null ? '底分 ' + snap.base + ' · 倍数 ×' + snap.multiplier : '叫分中';
     var bottom = document.getElementById('bottomcards');
     bottom.textContent = '';
     bottom.appendChild(el('span', null, '底牌'));
-    bottom.appendChild(snap && snap.bottom ? cards(snap.bottom) : backs(3));
+    bottom.appendChild(snap && snap.bottom ? cards(snap.bottom, null, marks && marks.bottom) : backs(3));
     for (var i = 0; i < 3; i++) {
-      drawSeat(i, snap, s && s.seat === i, s && s.to === i);
-      drawSlot(i, snap, s && s.seat === i && (s.kind === 'play' || s.kind === 'pass'));
+      drawSeat(i, snap, s && s.seat === i, s && s.to === i, marks);
+      drawSlot(i, snap, s && s.seat === i && (s.kind === 'play' || s.kind === 'pass'), marks);
     }
     if (!s) { caption.appendChild(el('span', 'tag', '按 ▶ 开始播放')); return; }
     var who = s.seat == null ? '学校' : data.seats[s.seat].name;
@@ -203,7 +212,7 @@ export function clubReplayPage(data: ClubReplay): string {
   return replayDocument({
     title: '斗地主回放',
     css: CSS,
-    data: art ? { ...data, art } : data,
+    data: { ...data, suits: cardSuits(data), ...(art ? { art } : {}) },
     js: JS,
     body: `  <div id="tablewrap">
     <div id="table">

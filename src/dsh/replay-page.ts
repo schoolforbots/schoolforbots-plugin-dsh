@@ -1,5 +1,6 @@
 // 上课回放的网页：一个自带样式和脚本的 HTML，数据（buildClassReplay 的结果）直接放在页面里，不再请求别的地址，也不连外网。
 // - 教室：顶上是黑板和老师（钉住，座位往下滚时也看得到），下面是座位；座位按窗口宽度排，窗口变了就重排，字和人不缩小。
+//   每一排从老师正前方那一列坐起，再往两边一右一左地坐，自家学生坐第一排正中。
 //   自家学生换一种颜色，不在线的同学变淡，名字下面是学号。人多时座位区滚动，说话的人、被说到的人自动滚进来。
 // - 一步一个动画：说话的人旁边冒气泡（悄悄话是虚线气泡，标明说给谁，对方的座位亮一下），底部字幕是完整的话；
 //   自我介绍里的名字和学号上色。课后小结是一张卡片。
@@ -118,6 +119,23 @@ const JS = `
     seatsEl.appendChild(d);
     seatEls[s.studentId] = { box: d, name: n };
   });
+
+  // 排座位：每行几个座位还是按窗口宽度自动算（网格的 auto-fill），但每一行从老师正前方那一列坐起，再往两边一右一左地坐，
+  // 自家的学生坐第一排正中。人少时也是围着老师坐，不会全挤在左边。
+  var seatOrder = data.seats.filter(function (s) { return s.self; }).concat(data.seats.filter(function (s) { return !s.self; }));
+  function placeSeats() {
+    var cols = getComputedStyle(seatsEl).gridTemplateColumns.split(' ').filter(Boolean).length || 1;
+    var mid = Math.floor((cols - 1) / 2);
+    seatOrder.forEach(function (s, k) {
+      var i = k % cols;
+      var col = mid + (i % 2 ? (i + 1) / 2 : -i / 2);
+      var box = seatEls[s.studentId].box;
+      box.style.gridRow = String(Math.floor(k / cols) + 1);
+      box.style.gridColumn = String(col + 1);
+    });
+  }
+  placeSeats();
+  window.addEventListener('resize', placeSeats);
 
   // 第 k 步时的状态：从头把状态变化放一遍（步数不多，回退也简单）
   function stateAt(k) {
