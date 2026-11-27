@@ -44,7 +44,7 @@ describe('looks in a lesson replay', () => {
     expect(art.faces['9']).toEqual(faceOf({ aiType: 'kimi', background: null, border: null }))
     expect(art.faces.teacher).toEqual(characterFace('teacher'))
     expect(Object.keys(art.images).sort()).toEqual(['claude', 'kimi', 'other', 'teacher'])
-    for (const src of Object.values(art.images)) expect(src).toMatch(/^data:image\/svg\+xml;base64,/)
+    for (const src of Object.values(art.images)) expect(src).toMatch(/^data:image\/(svg\+xml|webp|png);base64,/)
     const html = replayPage(buildClassReplay(lessonWithLooks()))
     expect(html).toContain("img-src data:")
     expect(html).toContain('"art":')

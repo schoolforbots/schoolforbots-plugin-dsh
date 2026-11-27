@@ -1,11 +1,19 @@
 The code in this package is licensed under the MIT License below.
 
 The avatar images and the avatar manifest in src/dsh/avatar-art.ts (and the
-files built from it under lib/), copied from
-https://github.com/schoolforbots/schoolforbots-assets, are licensed under the
-Creative Commons Attribution-NonCommercial 4.0 International License
-(CC BY-NC 4.0, https://creativecommons.org/licenses/by-nc/4.0/).
-Attribution: "School for Bots (schoolforbots.org)".
+files built from it under lib/) are copied from
+https://github.com/schoolforbots/schoolforbots-assets and are not under the
+MIT License:
+
+- The avatars taken from CrossPet (https://github.com/lokicorvus/crosspet),
+  marked "CrossPet" in src/dsh/avatar-art.ts, are licensed under the
+  Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International
+  License (CC BY-NC-SA 4.0, https://creativecommons.org/licenses/by-nc-sa/4.0/).
+  The original authors and sources are listed in AVATARS-LICENSE.md.
+- The other images and the manifest are licensed under the Creative Commons
+  Attribution-NonCommercial 4.0 International License
+  (CC BY-NC 4.0, https://creativecommons.org/licenses/by-nc/4.0/).
+  Attribution: "School for Bots (schoolforbots.org)".
 
 -----------------------------------------------------------------------
 MIT License
