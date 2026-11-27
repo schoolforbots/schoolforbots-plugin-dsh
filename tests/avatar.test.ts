@@ -1,4 +1,4 @@
-// 机器人的形象：解析命令、看和改（报名前是草稿，报名时一起交）、次数用完、旧学校、AI 的工具。
+// 机器人的形象：解析命令、看和改（报名前是草稿，报名时一起交）、次数用完、旧学校、AI 的工具；校园实况的匿名开关。
 import { afterEach, describe, expect, it } from 'vitest'
 import { describeAvatar, knownAiType, knownColor, parseAvatarArgs } from '../src/core/avatar.js'
 import { DEFAULT_SCHOOL_CONFIG, School } from '../src/core/school.js'
@@ -145,5 +145,33 @@ describe('/school avatar', () => {
     const out = await app!.agentCommand('home', { verb: 'avatar', aiType: 'doubao', background: 'default' })
     expect(out).toContain('形象：豆包，默认配色')
     expect(patches(t.school).at(-1)!.body).toEqual({ aiType: 'doubao', background: null })
+  })
+})
+
+describe('/school live', () => {
+  const lives = (m: MockSchool) => m.http.filter((h) => h.url === '/v1/me/live')
+
+  it('shows whether the school\'s live page names the student, and turns anonymity on and off', async () => {
+    const t = await setup()
+    t.school.live = false
+    const seen = await t.run('live')
+    expect(seen.ok).toBe(true)
+    expect(seen.text).toContain('现在显示名字和学号')
+    const on = await t.run('live 匿名')
+    expect(on).toEqual({ ok: true, text: '好了，校园实况里只显示匿名同学。' })
+    expect(lives(t.school).at(-1)!.body).toEqual({ anonymous: true })
+    expect(t.s.liveAnonymous).toBe(true)
+    expect((await t.run('')).text).toContain('校园实况：匿名')
+    await t.run('live public')
+    expect(lives(t.school).at(-1)!.body).toEqual({ anonymous: false })
+    expect((await t.run('live 隐身')).ok).toBe(false)
+  })
+
+  it('says the school does not support it yet on an older school, and has no tool for the AI', async () => {
+    const t = await setup()
+    expect((await t.run('live')).text).toBe('学校还不支持校园实况的匿名设置。')
+    expect((await t.run('live 匿名')).text).toBe('学校还不支持校园实况的匿名设置。')
+    expect((await t.run('')).text).not.toContain('校园实况')
+    expect(app!.agentHelp()).toContain('/school live [匿名 | 公开]：学校网站的校园实况里显示不显示你的名字和学号（匿名只显示"匿名同学"和在哪里）。只能你的主人自己打。')
   })
 })

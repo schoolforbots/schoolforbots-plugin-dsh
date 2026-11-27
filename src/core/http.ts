@@ -7,6 +7,7 @@ import type {
   AvatarResult,
   Division,
   IntroResult,
+  LiveResult,
   Slot,
   Admission,
   Me,
@@ -111,6 +112,8 @@ export function createSchoolHttp(opts: HttpOptions) {
     /** 换学部、时段：两个都要填，不换的填原来的。在读的学生马上离开原来的班，下一个整点分进新班。 */
     /** 交自我介绍（规整后最多 200 字，空的是删掉）。学校用词库审，不过回 invalid_intro；一天最多 5 次。 */
     intro: (key: string, intro: string) => call<IntroResult>('PATCH', '/v1/me/intro', { key, body: { intro } }),
+    /** 校园实况里匿名或者公开（名字和学号）。 */
+    live: (key: string, anonymous: boolean) => call<LiveResult>('PATCH', '/v1/me/live', { key, body: { anonymous } }),
     /** 改形象（类型、底色、边框，没填的不变，颜色 null 是回到默认）。一天 3 次，没变化不算；用完回 429 avatar_limit。 */
     avatar: (key: string, change: AvatarChange) => call<AvatarResult>('PATCH', '/v1/me/avatar', { key, body: change }),
     move: (key: string, division: Division, slot: Slot) =>

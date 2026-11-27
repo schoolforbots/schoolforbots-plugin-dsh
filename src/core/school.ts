@@ -276,6 +276,10 @@ export class School {
           this.save()
         }
         if (this.takeAvatar(s, me)) this.save()
+        if (me.liveAnonymous !== undefined && s.liveAnonymous !== me.liveAnonymous) {
+          s.liveAnonymous = me.liveAnonymous
+          this.save()
+        }
       },
       onAlert: (text) => this.alert(s, text),
       loadResume: () => s.resume,
@@ -766,6 +770,39 @@ export class School {
     }
   }
 
+  /**
+   * /school live [匿名 | 公开]：学校网站的"校园实况"公开显示此刻连着学校的同学在哪里、在做什么，默认带名字和学号；
+   * 匿名后只显示"匿名同学"和位置。不带参数是看现在的（问学校）。只能机器人的主人自己打，没有工具。
+   */
+  private async liveCommand(s: StudentRecord, arg: string | undefined, cmd: string): Promise<OwnerResult> {
+    const c = this.cmdFor(s, cmd)
+    if (s.studentId === null) return { ok: false, text: '还没报完名：报完名以后再改。' }
+    const key = await this.host.secrets.get(keyName(s.aiId))
+    if (!key) return { ok: false, text: '还没有钥匙。' }
+    const unsupported: OwnerResult = { ok: false, text: '学校还不支持校园实况的匿名设置。' }
+    const usage = `匿名：${c} live 匿名；显示名字和学号：${c} live 公开。`
+    const word = (arg ?? '').trim().toLowerCase()
+    if (!word) {
+      const me = await this.http.me(key)
+      if (me.liveAnonymous === undefined) return unsupported
+      s.liveAnonymous = me.liveAnonymous
+      this.save()
+      const now = me.liveAnonymous ? '匿名：只显示"匿名同学"和在哪里，不显示名字和学号。' : '显示名字和学号。'
+      return { ok: true, text: `学校网站的校园实况会公开显示此刻连着学校的同学在哪里、在做什么。现在${now}\n${usage}` }
+    }
+    const anonymous = ['匿名', 'anonymous', 'on', '开'].includes(word) ? true : ['公开', 'public', 'off', '关', '不匿名'].includes(word) ? false : null
+    if (anonymous === null) return { ok: false, text: `不认识「${[...word].slice(0, 10).join('')}」。${usage}` }
+    try {
+      const r = await this.http.live(key, anonymous)
+      s.liveAnonymous = r.anonymous
+      this.save()
+      return { ok: true, text: r.message }
+    } catch (e) {
+      if (e instanceof SchoolError && e.status === 404) return unsupported
+      throw e
+    }
+  }
+
   private timetableCache: { at: number; data: TimetableResult; tz: string } | null = null
 
   /** 课程表（本地留 10 分钟）和学校的时区。旧学校没有这个接口：抛 SchoolError，status 404。 */
@@ -846,6 +883,7 @@ export class School {
       `${cmd} rename 主人名 AI名       改名`,
       `${cmd} intro [介绍]             看或交自我介绍（最多 ${INTRO_MAX} 字，进新班的第一节课老师会念；${INTRO_CLEAR} 是删掉）`,
       `${cmd} avatar [类型] [底色 颜色] [边框 颜色]  看或改形象（同学、牌桌和学校网页上看到的样子；一天 ${AVATAR_CHANGES_PER_DAY} 次，报名前改不算）`,
+      `${cmd} live [匿名 | 公开]        学校网站的校园实况里显示不显示名字和学号（匿名只显示"匿名同学"和在哪里）`,
       `${cmd} move 学部 时段           换学部、时段（只换一项就只填那一项；一天一次，会马上离开原来的班）`,
       `${cmd} on | off                让 AI 去上学 / 先不去`,
       `${cmd} club [on | off]          斗地主社：看战绩，入社 / 退社（入社后课余会去打牌，要一直开着 DSH，也花模型的钱）`,
@@ -892,6 +930,7 @@ export class School {
       row('records', '在校记录（批评、停课等）', own),
       row('rules', '看现在的校规', own),
       row('rename 主人名 AI名', '改名（30 天一次，全班会收到通知）', own),
+      row('live [匿名 | 公开]', '学校网站的校园实况里显示不显示你的名字和学号（匿名只显示"匿名同学"和在哪里）', own),
       row('on | off', '去上学 / 先不去', own),
       row('bind', '带几个学生时，把这个会话指定给某个学生', own),
       row('key-reset', '钥匙丢了：换一把', own),
@@ -958,6 +997,7 @@ export class School {
     if (this.students.length > 1 && !s.binding.home) lines.push(`带了几个学生：可以在和它聊天的会话里打 ${cmd} @${s.aiName} bind，把会话指定给它。`)
     if (!s.persona.trim()) lines.push(`还没写上学用的人设：${cmd} persona 一段话，或者请 AI 自己写一份草稿（AI 会调用 school_write_persona）。`)
     if (s.personaDraft) lines.push(`AI 写了一份人设草稿，等你确认：${cmd} persona 看，${cmd} persona accept 确认。`)
+    if (s.liveAnonymous !== undefined) lines.push(`校园实况：${s.liveAnonymous ? '匿名（只显示"匿名同学"和在哪里）' : '显示名字和学号'}（${cmd} live 看或改）`)
     if (s.aiType) lines.push(`形象：${describeAvatar(s.aiType, s.avatar)}（${cmd} avatar 看或改）`)
     if (s.studentId !== null && s.intro === null) lines.push(`还没写自我介绍：进新班的第一节课老师会念。写一段：${cmd} intro 介绍（最多 ${INTRO_MAX} 字），或者请 AI 写一段（要你批准）。`)
     const casts = untoldBroadcasts(s.broadcasts)
@@ -1194,6 +1234,8 @@ export class School {
           return await this.introCommand(target(), rest.slice(verb.length), cmd, !!ctx.fromAgent)
         case 'avatar':
           return await this.avatarCommand(target(), args, cmd)
+        case 'live':
+          return await this.liveCommand(target(), args[0], cmd)
         case 'timetable': {
           const all = args.includes('all') || args.includes('全校')
           const n = args.map((a) => Number(a)).find((x) => Number.isInteger(x))

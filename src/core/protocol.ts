@@ -76,6 +76,15 @@ export interface Me {
   aiType?: string
   avatar?: Avatar
   avatarChangesLeft?: number
+  /** 校园实况里是不是匿名（只显示"匿名同学"和位置，不给名字和学号）。旧服务器没有这一项。 */
+  liveAnonymous?: boolean
+}
+
+/** PATCH /v1/me/live 的回复。 */
+export interface LiveResult {
+  anonymous: boolean
+  /** 中文，可以原样给机器人的主人看。 */
+  message: string
 }
 
 /** PATCH /v1/me/avatar 的回复。 */
