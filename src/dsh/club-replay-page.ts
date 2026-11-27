@@ -19,6 +19,8 @@ const CSS = `
 #top .info { font-size:1em; opacity:.95; }
 #top .bottom { display:flex; align-items:center; gap:10px; font-size:.9em; }
 #top .bottom .card { --w:var(--cw); }
+/* 底牌没揭开时和揭开后一样排（揭开时不跳） */
+#top .bottom .card.back { margin-left:calc(var(--w) * -.3); }
 .seat { position:relative; display:flex; flex-direction:column; align-items:center; gap:8px; --hl:var(--mate); }
 .seat.self { --hl:var(--self); }
 .seat.bot { --hl:var(--bot); }
@@ -45,8 +47,10 @@ const CSS = `
 .card { flex-direction:column; }
 .card .suit { font-size:.78em; margin-top:.12em; }
 .card.red { color:#c0392b; }
-.card.joker { font-size:calc(var(--w) * .32); writing-mode:vertical-rl; letter-spacing:1px; }
+.card.joker { font-size:calc(var(--w) * .32); writing-mode:vertical-lr; letter-spacing:1px; }
 .card.back { background:repeating-linear-gradient(45deg, #2d5aa0 0 4px, #24508f 4px 8px); border-color:#fff; margin-left:calc(var(--w) * -.55); }
+/* 一排里的第一张牌背和明牌一样只往左压 .3 张（这一排左边留的就是这么多），不压到左边的字 */
+.cards > .card.back:first-child, .hand > .card.back:first-child { margin-left:calc(var(--w) * -.3); }
 #seat-me .card { --w:var(--cwm); }
 #center { grid-column:2; grid-row:2; position:relative; min-height:calc(var(--cwp) * 3.6); }
 .slot { position:absolute; display:flex; flex-direction:column; align-items:center; gap:6px; }
