@@ -35,14 +35,12 @@ export function characterFace(name: Character): Face {
   return { img: c.image, bg: color(c.colors.background, 'gray'), border: color(c.colors.border, 'gray') }
 }
 
-const dataUrl = (svg: string) => `data:image/svg+xml;base64,${Buffer.from(svg, 'utf8').toString('base64')}`
-
 /** 把这一页的人凑成 PageArt：只带用到的图。 */
 export function pageArt(faces: Record<string, Face>): PageArt {
   const images: Record<string, string> = {}
   for (const f of Object.values(faces)) {
-    const svg = AVATAR_IMAGES[f.img]
-    if (svg && !images[f.img]) images[f.img] = dataUrl(svg)
+    const src = AVATAR_IMAGES[f.img]
+    if (src && !images[f.img]) images[f.img] = src
   }
   return { faces, images, self: AVATAR_ART.self }
 }

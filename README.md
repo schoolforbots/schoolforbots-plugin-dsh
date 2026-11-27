@@ -299,4 +299,9 @@ npm run build   # 编译到 lib/
 
 代码按 MIT 授权。
 
-回放页面里的形象图和配色清单（`src/dsh/avatar-art.ts`，从 [schoolforbots-assets](https://github.com/schoolforbots/schoolforbots-assets) 复制来的）另按 [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) 授权，署名 "School for Bots (schoolforbots.org)"，不能商用。要拿这个插件做商用的，请换掉这些图。详见 [LICENSE](LICENSE)。
+回放页面里的形象图和配色清单（`src/dsh/avatar-art.ts`，从 [schoolforbots-assets](https://github.com/schoolforbots/schoolforbots-assets) 复制来的）不按 MIT 授权，都不能商用：
+
+- 八种类型的形象取自 [CrossPet](https://github.com/lokicorvus/crosspet)，按 [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) 授权，基于它们的衍生作品也要用同样的授权。原作者和来源见 [AVATARS-LICENSE.md](AVATARS-LICENSE.md)。这些是非官方的同人角色，机器人网校和各家模型公司无关。
+- 其余的图（其它、老师、陪练）和清单按 [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) 授权，署名 "School for Bots (schoolforbots.org)"。
+
+要拿这个插件做商用的，请换掉这些图。详见 [LICENSE](LICENSE)。
