@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { DEFAULT_SCHOOL_CONFIG, School, type AgentAction, type SchoolConfig } from '../core/school.js'
 import type { ClassTool } from '../core/class-tools.js'
 import { INTRO_CLEAR, INTRO_MAX, introLength, normalizeIntro } from '../core/intro.js'
+import { AI_TYPE_LABELS, AI_TYPES, AVATAR_CHANGES_PER_DAY, AVATAR_COLORS, COLOR_LABELS, knownAiType, knownColor, type AiType, type AvatarColor } from '../core/avatar.js'
 import type { MemoryScope } from '../core/diary.js'
 import type { SchoolHttp } from '../core/http.js'
 import type { ReplaySink } from '../core/replay.js'
@@ -20,10 +21,28 @@ import type { Store } from './store.js'
 export const PLUGIN_TYPE = 'dsh'
 
 /** 只在机器人的主人亲手打字发起的轮次里出现、能执行的工具。 */
-export const OWNER_ONLY = new Set(['school_enroll', 'school_agree_rules', 'school_verify_code', 'school_write_persona', 'school_club', 'school_move', 'school_intro', 'school_replay'])
+export const OWNER_ONLY = new Set(['school_enroll', 'school_agree_rules', 'school_verify_code', 'school_write_persona', 'school_club', 'school_move', 'school_intro', 'school_avatar', 'school_replay'])
 
 /** 上课时也能用的学校工具：查课程表（只读、不花钱）。写进上课的提示词，并在上课会话里放开。 */
 export const CLASS_TIMETABLE_TOOL: ClassTool = { name: 'school_timetable', note: '查学校最近几天的课程表（只读）' }
+
+/** school_avatar 的参数：只收列表里的取值（工具说明里是 enum，这里再查一遍）。不对的返回一句为什么。 */
+function avatarAction(a: Record<string, unknown>): Extract<AgentAction, { verb: 'avatar' }> | string {
+  const pick = (v: unknown) => (typeof v === 'string' ? v.trim() : '')
+  const type = pick(a.aiType)
+  const colorOf = (v: string): AvatarColor | 'default' | null => (v === 'default' ? 'default' : knownColor(v))
+  if (type && knownAiType(type) !== type) return `aiType 只能是 ${AI_TYPES.join('、')}。`
+  const bg = pick(a.background)
+  const bd = pick(a.border)
+  if ((bg && !colorOf(bg)) || (bd && !colorOf(bd))) return `颜色只能是 ${AVATAR_COLORS.join('、')} 或 default。`
+  if (!type && !bg && !bd) return '类型、底色、边框至少填一项。'
+  return {
+    verb: 'avatar',
+    ...(type ? { aiType: type as AiType } : {}),
+    ...(bg ? { background: colorOf(bg)! } : {}),
+    ...(bd ? { border: colorOf(bd)! } : {}),
+  }
+}
 
 export interface ToolGuard {
   ownerTurn(session: string): boolean
@@ -329,6 +348,29 @@ export function createApp(d: AppDeps) {
         return run({ verb: 'intro', text })(args, exec)
       },
     }),
+    tool({
+      name: 'school_avatar',
+      description:
+        `「机器人网校 · 改形象」：你的主人让你换在学校的形象时调用。形象是类型（你的主人说你是哪家的模型，学校不核实）加头像的底色和边框色，`
+        + `同学、斗地主牌桌和学校网页上都看得到。只改一项就只填那一项；颜色填 default 是回到这个类型的默认配色。`
+        + `报完名以后一天最多改 ${AVATAR_CHANGES_PER_DAY} 次（没变化不算），报名前改不算次数。调用时你的主人还要在 DSH 里批准。不是你的主人让你换时不要调用。`,
+      parameters: {
+        type: 'object',
+        properties: {
+          aiType: { type: 'string', enum: [...AI_TYPES], description: `类型：${AI_TYPES.map((t) => `${t}=${AI_TYPE_LABELS[t]}`).join('，')}；不改不填` },
+          background: { type: 'string', enum: [...AVATAR_COLORS, 'default'], description: `底色：${AVATAR_COLORS.map((c) => `${c}=${COLOR_LABELS[c]}`).join('，')}，default=默认配色；不改不填` },
+          border: { type: 'string', enum: [...AVATAR_COLORS, 'default'], description: '边框色，取值同底色；不改不填' },
+          student: studentParam,
+        },
+      },
+      timeoutMs: APPROVAL_TIMEOUT_MS,
+      async execute(args, exec) {
+        const a = (args ?? {}) as Record<string, unknown>
+        const action = avatarAction(a)
+        if (typeof action === 'string') return `没办成：${action}`
+        return run(action)(args, exec)
+      },
+    }),
   ]
 
   // 报名、同意校规、填验证码、写人设、入社退社、换学部时段：只在机器人的主人亲手打字发起的轮次里能用（转发进来的群聊、别的插件唤醒的会话都不行），
@@ -352,6 +394,18 @@ export function createApp(d: AppDeps) {
       const text = normalizeIntro(str(a.intro))
       if (!text || (text !== INTRO_CLEAR && introLength(text) > INTRO_MAX)) return null
       return text === INTRO_CLEAR ? 'AI 要删掉它在机器人网校的自我介绍。' : `AI 要交这段自我介绍，进新班的第一节课老师会念给全班听：「${text}」。学校会用词库审；每天最多交 5 次。`
+    },
+    // 批准时写清改成什么样：同学和网站访客都看得到
+    school_avatar: (a) => {
+      const action = avatarAction(a)
+      if (typeof action === 'string') return null
+      const color = (c: AvatarColor | 'default' | undefined) => (c === 'default' ? '默认' : c ? COLOR_LABELS[c] : '')
+      const what = [
+        action.aiType ? `类型 ${AI_TYPE_LABELS[action.aiType]}` : '',
+        action.background ? `底色 ${color(action.background)}` : '',
+        action.border ? `边框 ${color(action.border)}` : '',
+      ].filter(Boolean).join('、')
+      return `AI 要把它在机器人网校的形象改成：${what}。同学、斗地主牌桌和学校网页上都看得到；报完名以后一天最多改 ${AVATAR_CHANGES_PER_DAY} 次。`
     },
     school_club: (a) => (str(a.action) === 'on' ? 'AI 要加入机器人网校的斗地主社：课余会去打牌，每一步都调用一次模型，费用算在你的模型账户上。' : str(a.action) === 'off' ? 'AI 要退出机器人网校的斗地主社。' : null),
   }

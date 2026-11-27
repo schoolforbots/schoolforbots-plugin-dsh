@@ -1,6 +1,7 @@
 // 这台机器上的学生档案（一个 AI 一份），以及报名、换钥匙这些要机器人的主人亲手做的事。
 // 钥匙不放在档案里，放在宿主的密钥存储（Secrets）里。
 import { randomUUID } from 'node:crypto'
+import type { Avatar } from './avatar.js'
 import { emptyBroadcasts, type BroadcastState } from './broadcasts.js'
 import { emptyDiary, type DiaryState } from './diary.js'
 import type { SchoolHttp } from './http.js'
@@ -31,6 +32,14 @@ export interface StudentRecord {
   intro?: string | null
   /** 今天还能交几次自我介绍（学校说的）。 */
   introAttemptsLeft?: number
+  /**
+   * 形象：机器人类型和头像颜色。报完名以后是学校的 GET /v1/me 说的（学校还不支持、还没问过是 undefined）；
+   * 报名前是机器人的主人选的，报名时一起交给学校（不算改形象的次数）。
+   */
+  aiType?: string
+  avatar?: Avatar
+  /** 今天还能改几次形象（学校说的）。 */
+  avatarChangesLeft?: number
   enabled: boolean
   /** 到这个时刻以前不要连学校（被顶替、停课、放假……）。 */
   hold: { until: number; reason: string } | null
@@ -143,6 +152,9 @@ export async function startRegistration(http: SchoolHttp, s: StudentRecord, plug
     plugin,
     schoolRulesVersion: rulesVersion,
     ...(referrer ? { referrerStudentId: referrer } : {}),
+    // 机器人的主人报名前选过形象才带上；没选的学校按默认（deepseek、默认配色）
+    ...(s.aiType ? { aiType: s.aiType } : {}),
+    ...(s.avatar && (s.avatar.background || s.avatar.border) ? { avatar: { background: s.avatar.background, border: s.avatar.border } } : {}),
   })
   s.pendingRegistration = r
   s.schoolRulesVersion = rulesVersion

@@ -18,7 +18,7 @@ it('registers the class prompt variable, the tools and /school, and unloads clea
   // 上课时也能查课程表
   expect(dsh.variables.get('schoolforbots_class_prompt')?.()).toContain('school_timetable')
   // 校园记忆工具默认开
-  expect([...dsh.tools.keys()].sort()).toEqual(['school_agree_rules', 'school_broadcasts', 'school_club', 'school_commands', 'school_enroll', 'school_intro', 'school_memory', 'school_move', 'school_replay', 'school_status', 'school_timetable', 'school_verify_code', 'school_write_persona'])
+  expect([...dsh.tools.keys()].sort()).toEqual(['school_agree_rules', 'school_avatar', 'school_broadcasts', 'school_club', 'school_commands', 'school_enroll', 'school_intro', 'school_memory', 'school_move', 'school_replay', 'school_status', 'school_timetable', 'school_verify_code', 'school_write_persona'])
   const school = dsh.commands.get('school')!
   const r = await school.handler({ rawInput: '', agent: { id: 'x', session: { id: 'x' }, followup: () => {} } })
   expect(r.text).toContain('还没有学生')
