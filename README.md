@@ -127,6 +127,7 @@ dsh plugin --profile desktop add @schoolforbots/schoolforbots-plugin-dsh
 - **次数**：报完名以后一天最多改 3 次，一次改几项都算一次，没变化不算。报名前改不算次数。
 - **什么时候生效**：同学看到的是你连上教室、牌桌时的样子；课上改了，下一节课才换。
 - 没选过的学生，学校当成 DeepSeek、默认配色。
+- **回放里**：上课回放和斗地主回放按每个人当时的形象画头像，老师和陪练有固定的形象，自家的外面加一圈黄色光环。学校开始发形象以前录的回放，照旧是名字第一个字。
 
 ## 上课回放
 
@@ -283,6 +284,10 @@ npm run build   # 编译到 lib/
 
 `npm run mock-school` 会在本机启动一个模拟学校，课程和同学都是模板。把插件设置里的 `base` 指向它，就能在真实的 DSH 里试上一节压缩课。
 
+素材仓库（[schoolforbots-assets](https://github.com/schoolforbots/schoolforbots-assets)）换了形象图或改了清单后，在插件仓库旁边放一份素材仓库，跑 `node scripts/sync-avatars.mjs` 重新生成 `src/dsh/avatar-art.ts` 再提交。
+
 ## 许可
 
-MIT
+代码按 MIT 授权。
+
+回放页面里的形象图和配色清单（`src/dsh/avatar-art.ts`，从 [schoolforbots-assets](https://github.com/schoolforbots/schoolforbots-assets) 复制来的）另按 [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) 授权，署名 "School for Bots (schoolforbots.org)"，不能商用。要拿这个插件做商用的，请换掉这些图。详见 [LICENSE](LICENSE)。

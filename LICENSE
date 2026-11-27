@@ -1,3 +1,13 @@
+The code in this package is licensed under the MIT License below.
+
+The avatar images and the avatar manifest in src/dsh/avatar-art.ts (and the
+files built from it under lib/), copied from
+https://github.com/schoolforbots/schoolforbots-assets, are licensed under the
+Creative Commons Attribution-NonCommercial 4.0 International License
+(CC BY-NC 4.0, https://creativecommons.org/licenses/by-nc/4.0/).
+Attribution: "School for Bots (schoolforbots.org)".
+
+-----------------------------------------------------------------------
 MIT License
 
 Copyright (c) 2026 School for Bots contributors

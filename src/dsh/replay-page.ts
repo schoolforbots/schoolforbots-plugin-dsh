@@ -6,7 +6,9 @@
 // - 底部控制器：从头、上一步、播放/暂停、下一步、速度，进度条可以拖。一步默认 3 秒；"长的话多停一会儿"开着时，
 //   字多的按大约每秒 8 个字多停，最多 30 秒（都是 1× 的时间）。键盘：空格播放/暂停，← → 上一步、下一步。地址后面加 #步数 直接停在那一步。
 // - 记录里的文字都是用 textContent 放进页面的，同学写的话不会变成网页代码。
+// - 形象：记录里带了形象（新服务器）时，老师、同学都画成形象，自家的加光环；旧记录照旧是名字第一个字。
 import type { ClassReplay } from '../core/class-replay.js'
+import { characterFace, faceOf, pageArt, type Face, type PageArt } from './avatar-look.js'
 import { replayDocument } from './replay-shell.js'
 
 const CSS = `
@@ -41,6 +43,8 @@ const CSS = `
 .seat.self { --hl:var(--self); }
 .seat .avatar { background:var(--hl); }
 .seat.away .avatar { background:transparent; border:3px dashed #c9bfa9; box-shadow:none; color:transparent; }
+.seat.away .avatar.pic { background:transparent !important; border-color:#c9bfa9 !important; box-shadow:none; }
+.seat.away .avatar.pic img { visibility:hidden; }
 .seat.away .name::after { content:'（上台了）'; color:var(--muted); font-weight:400; }
 .seat.self .name { color:var(--self); font-weight:600; }
 .seat.offline { opacity:.32; }
@@ -97,14 +101,14 @@ const JS = `
   document.getElementById('title').textContent = data.title || '上课回放';
   document.getElementById('sub').textContent = (data.className || '') + (data.teacher ? ' · 老师：' + data.teacher : '');
   document.title = '上课回放 · ' + (data.title || '');
-  teacherEl.appendChild(el('div', 'avatar', initial(data.teacher)));
+  teacherEl.appendChild(face('teacher', initial(data.teacher)));
   teacherEl.appendChild(el('div', 'podium'));
   teacherEl.appendChild(el('div', 'name', data.teacher || '老师'));
 
   var seatEls = {};
   data.seats.forEach(function (s) {
     var d = el('div', 'seat' + (s.self ? ' self' : ''));
-    d.appendChild(el('div', 'avatar', initial(s.name)));
+    d.appendChild(face(String(s.studentId), initial(s.name)));
     if (s.self) d.appendChild(el('span', 'badge', '自家'));
     d.appendChild(el('div', 'desk'));
     var n = el('div', 'name', s.name);
@@ -159,7 +163,7 @@ const JS = `
     var seat = seatEls[id];
     var self = id === data.me;
     var g = el('div', 'guest speaking' + (self ? ' self' : ''));
-    var av = el('div', 'avatar', initial(nameOf(id, st.names)));
+    var av = face(String(id), initial(nameOf(id, st.names)));
     g.appendChild(av);
     g.appendChild(el('div', 'name', nameOf(id, st.names)));
     g.appendChild(el('div', 'no', no(id)));
@@ -260,11 +264,20 @@ const JS = `
 })();
 `
 
+/** 这节课的形象：记录里有人带形象才画（旧记录返回 null，照旧用字）。老师用固定的角色，没带形象的同学用匿名同学。 */
+export function classArt(data: ClassReplay): PageArt | null {
+  if (!data.seats.some((s) => s.look)) return null
+  const faces: Record<string, Face> = { teacher: characterFace('teacher') }
+  for (const s of data.seats) faces[String(s.studentId)] = s.look ? faceOf(s.look) : characterFace('anonymous')
+  return pageArt(faces)
+}
+
 export function replayPage(data: ClassReplay): string {
+  const art = classArt(data)
   return replayDocument({
     title: '上课回放',
     css: CSS,
-    data,
+    data: art ? { ...data, art } : data,
     js: JS,
     body: `  <div id="roomwrap">
     <div id="room">

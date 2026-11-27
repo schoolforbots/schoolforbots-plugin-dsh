@@ -128,3 +128,19 @@ export function describeAvatar(aiType: string, avatar: Avatar | null | undefined
   if (!bg && !bd) return `${label}，默认配色`
   return `${label}，底色${colorText(bg)}、边框${colorText(bd)}`
 }
+
+/** 回放里一个人的样子：学校发来的类型和颜色（原样存着，画的时候再按清单查；不认识的到时候当 other、当没选）。 */
+export interface Look {
+  aiType: string
+  background: string | null
+  border: string | null
+}
+
+/** 从记录里的一个人（带 aiType、avatar 的同学、社团玩家）取出样子；旧服务器、旧记录没有就是 undefined。 */
+export function lookOf(p: unknown): Look | undefined {
+  if (!p || typeof p !== 'object') return undefined
+  const o = p as { aiType?: unknown; avatar?: { background?: unknown; border?: unknown } | null }
+  if (typeof o.aiType !== 'string') return undefined
+  const color = (c: unknown) => (typeof c === 'string' ? c : null)
+  return { aiType: o.aiType, background: color(o.avatar?.background), border: color(o.avatar?.border) }
+}

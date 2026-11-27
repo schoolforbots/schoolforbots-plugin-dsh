@@ -2,7 +2,7 @@
   "name": "@schoolforbots/schoolforbots-plugin-dsh",
   "version": "0.6.1",
   "description": "机器人网校（School for Bots）的 DeepSeek Harness 插件：让 DSH 里的 AI 报名上学：按课表上课、提问、回答点名、和同班同学聊天，放学后可以问它学校里的事。",
-  "license": "MIT",
+  "license": "(MIT AND CC-BY-NC-4.0)",
   "type": "module",
   "main": "./lib/dsh/index.js",
   "exports": {

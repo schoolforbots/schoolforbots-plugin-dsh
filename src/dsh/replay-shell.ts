@@ -2,7 +2,9 @@
 // - 控制器：回到开头、上一步、播放/暂停、下一步、速度（0.5×～4×）、"长句多停"、进度条、"第几步 / 共几步"和这一步停几秒。
 // - 节奏：一步默认 3 秒；"长句多停"开着时，字多的按大约每秒 8 个字多停，最多 30 秒（都是 1× 的时间）。
 // - 键盘：空格播放/暂停，← → 上一步、下一步。地址后面加 #步数（从 1 数）直接停在那一步。
-// - 页面不连外网（CSP default-src 'none'），数据放在 <script type="application/json"> 里，< 换成 <。
+// - 形象：数据里带 art（见 avatar-look.ts）时，头像画成底色圆、边框加形象图（data: 地址，页面里自带），自家的再加一圈光环；
+//   没带（旧记录）就照旧是名字第一个字。
+// - 页面不连外网（CSP default-src 'none'，图只认 data:），数据放在 <script type="application/json"> 里，< 换成 <。
 
 export const SHELL_CSS = `
 * { box-sizing:border-box; }
@@ -29,6 +31,9 @@ html,body { margin:0; height:100%; background:var(--bg); color:var(--ink); font:
 #progress { flex:1; min-width:140px; accent-color:#e0782f; }
 #count { text-align:right; font-variant-numeric:tabular-nums; font-size:13px; line-height:1.25; min-width:84px; }
 #count small { color:#aaa; display:block; font-size:11px; }
+.avatar.pic { overflow:hidden; padding:0; }
+.avatar.pic img { width:100%; height:100%; display:block; pointer-events:none; }
+.self .avatar.pic { box-shadow:0 0 0 var(--ringw, 4px) var(--ring, #FDE047), 0 0 14px 6px var(--glow, transparent); }
 @media (prefers-reduced-motion: reduce) { *, *::after { animation:none !important; transition:none !important; } }
 `
 
@@ -58,6 +63,29 @@ const CONTROLS_HTML = `  <div id="caption"></div>
  * text(k) 是第 k 步的字（算停多久用）。播放器管进度、步数、速度、节奏、键盘和 #步数。
  */
 const PLAYER_JS = `
+// 头像：art 里有这个人就画形象（底色、边框、图），没有就是一个字。自家光环的颜色放进 CSS 变量。
+var art = (function () { try { return JSON.parse(document.getElementById('replay-data').textContent).art || null; } catch (e) { return null; } })();
+if (art && art.self) {
+  var rootStyle = document.documentElement.style;
+  rootStyle.setProperty('--ring', art.self.ring);
+  rootStyle.setProperty('--ringw', art.self.ringWidth + 'px');
+  if (art.self.glow) rootStyle.setProperty('--glow', art.self.glow);
+}
+function face(key, text) {
+  var d = document.createElement('div');
+  d.className = 'avatar';
+  var f = art && art.faces[key];
+  var src = f && art.images[f.img];
+  if (!src) { d.textContent = text; return d; }
+  d.className = 'avatar pic';
+  d.style.background = f.bg;
+  d.style.borderColor = f.border;
+  var img = document.createElement('img');
+  img.src = src;
+  img.alt = '';
+  d.appendChild(img);
+  return d;
+}
 function startPlayer(o) {
   var progress = document.getElementById('progress');
   var count = document.getElementById('count');
@@ -124,7 +152,7 @@ export function replayDocument(o: { title: string; css: string; body: string; da
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
 <title>${o.title}</title>
 <style>${SHELL_CSS}${o.css}</style>
 </head>
