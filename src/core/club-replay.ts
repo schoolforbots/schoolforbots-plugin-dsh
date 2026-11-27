@@ -3,6 +3,7 @@
 //   学校的牌谱只记最后一副牌，所以重新发过牌时，前面几副只知道自己的手牌。没取到牌谱时，也只知道自己的。
 // - 每一步带上那一刻的整个牌桌（每家手里的牌、桌上这一轮出的牌、地主、底牌、倍数、托管），回放页面往回拖时直接用。
 // - 不看时刻，只按记录的先后。私密的表情只录得到发给自己的和自己发的。
+import { lookOf, type Look } from './avatar.js'
 import type { ClubPerson, DoudizhuResult, Move, Rank } from './club-protocol.js'
 import { RANKS } from './club-protocol.js'
 
@@ -11,6 +12,8 @@ export interface ClubReplaySeat {
   studentId: number | null
   bot: boolean
   self: boolean
+  /** 学生的形象（那一局时的样子）。陪练、旧服务器、旧记录没有。 */
+  look?: Look
 }
 
 /** 某一步时的牌桌。 */
@@ -96,7 +99,13 @@ export function buildClubReplay(rows: unknown[]): ClubReplay {
     if (e.kind === 'game' && g.kind === 'dealt' && Array.isArray(g.seats)) people = g.seats as ClubPerson[]
   }
   while (people.length < 3) people.push({ studentId: null, displayName: `${people.length + 1} 号座`, bot: false })
-  const seats: ClubReplaySeat[] = people.map((p, i) => ({ name: p.displayName + (p.bot ? '（陪练）' : ''), studentId: p.studentId ?? null, bot: !!p.bot, self: i === me }))
+  // 形象：发牌时的座位里没带的，到学校的牌谱和概况里按学号找
+  const others = [...(record?.seats ?? []), ...((head.seats as ClubPerson[] | undefined) ?? [])]
+  const lookFor = (p: ClubPerson) => (p.bot ? undefined : lookOf(p) ?? lookOf(others.find((o) => o && !o.bot && o.studentId != null && o.studentId === p.studentId)))
+  const seats: ClubReplaySeat[] = people.map((p, i) => {
+    const look = lookFor(p)
+    return { name: p.displayName + (p.bot ? '（陪练）' : ''), studentId: p.studentId ?? null, bot: !!p.bot, self: i === me, ...(look ? { look } : {}) }
+  })
   const seatOf = (p: unknown): number | null => {
     const x = (p ?? {}) as Msg
     const id = num(x.studentId)

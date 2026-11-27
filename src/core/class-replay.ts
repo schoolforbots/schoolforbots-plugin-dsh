@@ -3,11 +3,15 @@
 // - 没有话的状态变化（同学上线下线、进出班级、改名）不单独占一步，并进下一步，回放时一起生效。
 // - 座位：整节课里出现过的学生都给一个座位（按第一次出现的先后），不在线的变淡。
 // - 只用记录里本来就有的东西：私聊只有自己参与的，别人之间的悄悄话本来就收不到。
+// - 形象：welcome、presence、roster 里的同学带着（连上来时的样子，课中改了下节课才变），取第一次看到的。
+import { lookOf, type Look } from './avatar.js'
 
 export interface ReplaySeat {
   studentId: number
   name: string
   self: boolean
+  /** 形象（同学连上来时的样子）。旧服务器的记录没有。 */
+  look?: Look
 }
 
 /** 一步里谁在说。 */
@@ -94,10 +98,12 @@ export function buildClassReplay(rows: unknown[]): ClassReplay {
   const session = (head.session ?? {}) as Msg
   let title = session.kind === 'study' ? '自习课' : `${str(session.subject)}${session.title ? `《${str(session.title)}》` : ''}`
   const online = new Set<number>()
-  const seat = (id: number | null, name: unknown) => {
+  const seat = (id: number | null, name: unknown, person?: unknown) => {
     if (id === null) return
+    const look = lookOf(person)
     const s = seats.get(id)
-    if (!s) seats.set(id, { studentId: id, name: str(name) || `#${id}`, self: id === me })
+    if (!s) seats.set(id, { studentId: id, name: str(name) || `#${id}`, self: id === me, ...(look ? { look } : {}) })
+    else if (look && !s.look) s.look = look
   }
 
   // 先扫一遍：认出自己、老师、所有出现过的同学（座位按第一次出现的先后），一开始谁在线
@@ -109,14 +115,14 @@ export function buildClassReplay(rows: unknown[]): ClassReplay {
       welcomed = true
       const st = m.student as Msg | undefined
       me = num(st?.studentId) ?? me
-      if (me !== null) seat(me, st?.displayName)
+      if (me !== null) seat(me, st?.displayName, st)
       const cls = m.class as Msg | undefined
       className = str(cls?.className) || className
       teacher = str((cls?.teacher as Msg | undefined)?.name) || teacher
       const ses = m.session as Msg | undefined
       if (ses) title = ses.kind === 'study' ? '自习课' : `${str(ses.subject)}${ses.title ? `《${str(ses.title)}》` : ''}`
       for (const p of (m.online as Msg[] | undefined) ?? []) {
-        seat(num(p.studentId), p.displayName)
+        seat(num(p.studentId), p.displayName, p)
         const id = num(p.studentId)
         if (id !== null) online.add(id)
       }
@@ -124,12 +130,12 @@ export function buildClassReplay(rows: unknown[]): ClassReplay {
     }
     const e = (m.event ?? {}) as Msg
     if (m.type === 'class.event') {
-      if (e.kind === 'roster') for (const p of [...((e.joined as Msg[]) ?? []), ...((e.left as Msg[]) ?? [])]) seat(num(p.studentId), p.displayName)
+      if (e.kind === 'roster') for (const p of [...((e.joined as Msg[]) ?? []), ...((e.left as Msg[]) ?? [])]) seat(num(p.studentId), p.displayName, p)
       if (e.kind === 'answer' || e.kind === 'qa' || e.kind === 'called_on') seat(num(e.studentId), e.displayName)
       if (e.kind === 'rename') seat(num(e.studentId), e.oldName)
       if (e.kind === 'intros') for (const i of (e.intros as Msg[]) ?? []) seat(num(i.studentId), i.displayName)
     }
-    if (m.type === 'presence') for (const p of [m.joined, m.left] as (Msg | undefined)[]) if (p) seat(num(p.studentId), p.displayName)
+    if (m.type === 'presence') for (const p of [m.joined, m.left] as (Msg | undefined)[]) if (p) seat(num(p.studentId), p.displayName, p)
     if (m.type === 'chat.incoming') seat(num((m.from as Msg | undefined)?.studentId), (m.from as Msg | undefined)?.displayName)
   }
   if (me !== null && !seats.has(me)) seat(me, head.student && (head.student as Msg).displayName)

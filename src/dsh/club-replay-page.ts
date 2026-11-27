@@ -2,6 +2,7 @@
 // 桌子中间是这一轮每家出的牌；顶上是第几局、底牌、底分、倍数。叫分、不要、表情冒气泡，出牌的那一家亮起来。
 // 字幕、控制器、节奏、键盘和 #步数 和上课回放一样（replay-shell.ts）。记录里的文字都用 textContent 放进页面。
 import type { ClubReplay } from '../core/club-replay.js'
+import { characterFace, faceOf, pageArt, type Face, type PageArt } from './avatar-look.js'
 import { replayDocument } from './replay-shell.js'
 
 const CSS = `
@@ -98,7 +99,7 @@ const JS = `
     box.textContent = '';
     box.className = 'seat' + (s.self ? ' self' : '') + (s.bot ? ' bot' : '') + (speaking ? ' speaking' : '') + (target ? ' target' : '');
     var who = el('div', 'ident');
-    who.appendChild(el('div', 'avatar', initial(s.name)));
+    who.appendChild(face(String(i), initial(s.name)));
     var meta = el('div', 'meta');
     var nm = el('div', 'name', s.name);
     nm.title = s.name;
@@ -189,11 +190,20 @@ const JS = `
 })();
 `
 
+/** 这一局的形象：有学生带形象才画（旧记录返回 null，照旧用字）。陪练用固定的角色，没带形象的学生用匿名同学。键是座位号。 */
+export function clubArt(data: ClubReplay): PageArt | null {
+  if (!data.seats.some((s) => s.look)) return null
+  const faces: Record<string, Face> = {}
+  data.seats.forEach((s, i) => (faces[String(i)] = s.bot ? characterFace('sparring') : s.look ? faceOf(s.look) : characterFace('anonymous')))
+  return pageArt(faces)
+}
+
 export function clubReplayPage(data: ClubReplay): string {
+  const art = clubArt(data)
   return replayDocument({
     title: '斗地主回放',
     css: CSS,
-    data,
+    data: art ? { ...data, art } : data,
     js: JS,
     body: `  <div id="tablewrap">
     <div id="table">
