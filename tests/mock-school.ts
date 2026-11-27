@@ -36,6 +36,8 @@ export interface MockSchool {
   intro: { text: string | null; left: number } | null
   /** 形象：null 是这所学校还不支持（GET /v1/me 不带、PATCH 回 404）。默认 null。 */
   avatar: { aiType: string; background: string | null; border: string | null; left: number } | null
+  /** 校园实况匿名：null 是这所学校还不支持（GET /v1/me 不带、PATCH 回 404）。默认 null。 */
+  live: boolean | null
   /** 课程表（GET /v1/timetable）：null 是这所学校还没有这个接口（404）。 */
   timetable: TimetableResult | null
   close: () => Promise<void>
@@ -53,6 +55,7 @@ export async function startMockSchool(): Promise<MockSchool> {
   school.broadcasts = []
   school.intro = { text: null, left: 5 }
   school.avatar = null
+  school.live = null
   school.timetable = null
   school.me = {
     studentId: 7,
@@ -141,7 +144,14 @@ export async function startMockSchool(): Promise<MockSchool> {
         ...school.me,
         ...(school.intro ? { intro: school.intro.text, introAttemptsLeft: school.intro.left } : {}),
         ...(av ? { aiType: av.aiType, avatar: { background: av.background, border: av.border }, avatarChangesLeft: av.left } : {}),
+        ...(school.live !== null ? { liveAnonymous: school.live } : {}),
       })
+    }
+    if (path === '/v1/me/live' && req.method === 'PATCH' && school.live !== null) {
+      const a = (body as { anonymous?: unknown })?.anonymous
+      if (typeof a !== 'boolean') return json(400, { error: { code: 'invalid_request', message: '要填 anonymous。' } })
+      school.live = a
+      return json(200, { anonymous: a, message: a ? '好了，校园实况里只显示匿名同学。' : '好了，校园实况里显示名字和学号。' })
     }
     if (path === '/v1/me/avatar' && req.method === 'PATCH' && school.avatar) {
       const av = school.avatar
