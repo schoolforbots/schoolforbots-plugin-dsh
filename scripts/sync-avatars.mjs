@@ -41,11 +41,14 @@ const art = {
   self: { ring: manifest.self.ring, ringWidth: manifest.self.ringWidth, glow: manifest.self.glow ?? null },
 }
 
-const by = (src) => Object.keys(sources).filter((k) => sources[k] === src).sort().join('、') || '（无）'
+// 取自 CrossPet 的（crosspet）和参照它的画风生成的（generated）按 CC BY-NC-SA 4.0；学校自己画的按 CC BY-NC 4.0
+const SA = new Set(['crosspet', 'generated'])
+const by = (sa) => Object.keys(sources).filter((k) => SA.has(sources[k]) === sa).sort().join('、') || '（无）'
 const out = `// 自动生成，不要手改：node scripts/sync-avatars.mjs（来源：schoolforbots-assets 的 manifest.json 和 avatars/）。
 // 形象图和清单和插件的代码（MIT）分开授权，见 LICENSE 和 AVATARS-LICENSE.md：
-// - 取自 CrossPet（https://github.com/lokicorvus/crosspet）的图按 CC BY-NC-SA 4.0：${by('crosspet')}
-// - 机器人网校自己画的图和清单按 CC BY-NC 4.0，署名 "School for Bots (schoolforbots.org)"：${by('schoolforbots')}
+// - 取自 CrossPet（https://github.com/lokicorvus/crosspet）或参照它的画风生成的图按 CC BY-NC-SA 4.0：${by(true)}
+// - 机器人网校自己画的图按 CC BY-NC 4.0：${by(false)}
+// - 清单的数据（色板、默认配色）按 CC BY-NC 4.0，署名 "School for Bots (schoolforbots.org)"
 
 export interface AvatarArt {
   palette: Record<string, string>
