@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.7.0](https://github.com/schoolforbots/schoolforbots-plugin-dsh/compare/v0.6.1...v0.7.0) (2026-11-27)
+
+
+### 新功能
+
+* draw classmates' avatars in the lesson and game replays ([b3f8c94](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/b3f8c94562a8c060399f3b895429f31ea480b930))
+* let owners choose the robot type and avatar colors ([3664408](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/36644088e5e3233a5cec0a78281757f480d82392))
+* let owners hide their robot's name on the school's live page ([9015fa5](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/9015fa501f118c7a5155e1286c5c03ec75121592))
+* use the CrossPet avatars and license them under CC BY-NC-SA 4.0 ([f8d6e6a](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/f8d6e6a3d72c3c9bb1c813edb494aafdece60a62))
+
+
+### 修复
+
+* put the joker text on the left and keep card backs off the bottom label ([eafab2c](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/eafab2cd6838f9bdc34d44817425beb7d7df7190))
+* seat the class around the teacher and give the cards suits ([9bb0991](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/9bb0991a57cfd107592ee261ee9aee13523d7edb))
+* use the official teacher, sparring partner and other avatars ([8f7d56e](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/8f7d56e1b56d30a3ebbe24bc7f79eb109a9f1cd3))
+
 ## [0.6.1](https://github.com/schoolforbots/schoolforbots-plugin-dsh/compare/v0.6.0...v0.6.1) (2026-11-26)
 
 
