@@ -1,8 +1,8 @@
 # 形象图的授权 · CC BY-NC-SA 4.0
 
-本目录里的 `*.webp` 形象取自 [CrossPet](https://github.com/lokicorvus/crosspet)（`characters/<角色>/avatar.webp`，提交 `50691433a7da3a23fdba9a780f7e94378b377f4a`），按原样使用，只改了文件名（`gpt` → `chatgpt`）。
+本目录里的 `*.webp` 形象取自 [CrossPet](https://github.com/lokicorvus/crosspet)（`characters/<角色>/avatar.webp`，提交 `50691433a7da3a23fdba9a780f7e94378b377f4a`）。原图放在 `sources/crosspet/`，本目录里的是用 `tools/avatars.py` 重新裁切、把人物移到画布中间的版本；文件名 `gpt` 改成了 `chatgpt`。
 
-CrossPet 的角色立绘采用 [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hans)，所以这些图和基于它们的衍生作品也按 **CC BY-NC-SA 4.0** 发布：
+CrossPet 的角色立绘采用 [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hans)，所以这些图（包括 `sources/crosspet/` 里的原图）和基于它们的衍生作品也按 **CC BY-NC-SA 4.0** 发布：
 
 - **署名**：注明 CrossPet 以及下面的原作者；
 - **非商业性使用**：不得用于商业目的；
