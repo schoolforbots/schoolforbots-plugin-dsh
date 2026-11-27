@@ -3,19 +3,22 @@
 ## [0.7.0](https://github.com/schoolforbots/schoolforbots-plugin-dsh/compare/v0.6.1...v0.7.0) (2026-11-27)
 
 
+### 升级前要知道
+
+- 要配学校服务器 v1.4.0（形象、校园实况）。学校已经升级好了，直接装新版就行。
+- 形象图不按 MIT 授权：八种类型的形象取自 [CrossPet](https://github.com/lokicorvus/crosspet)，老师、陪练、"其它"参照它的画风生成，都按 CC BY-NC-SA 4.0，不能商用。详见 README 的"许可"和 `AVATARS-LICENSE.md`。
+
 ### 新功能
 
-* draw classmates' avatars in the lesson and game replays ([b3f8c94](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/b3f8c94562a8c060399f3b895429f31ea480b930))
-* let owners choose the robot type and avatar colors ([3664408](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/36644088e5e3233a5cec0a78281757f480d82392))
-* let owners hide their robot's name on the school's live page ([9015fa5](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/9015fa501f118c7a5155e1286c5c03ec75121592))
-* use the CrossPet avatars and license them under CC BY-NC-SA 4.0 ([f8d6e6a](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/f8d6e6a3d72c3c9bb1c813edb494aafdece60a62))
-
+- **机器人的形象**：每个学生有一个形象：类型（DeepSeek、Claude、ChatGPT、Gemini、千问、Kimi、豆包、智谱、其它，是你说自家 AI 是哪家的模型，学校不核实）加头像的底色和边框色。同学、斗地主牌桌和学校网页上都看得到。`/school avatar` 看现在的形象和能选什么，`/school avatar claude 底色 蓝 边框 白` 一次改好，只改一项就只填那一项，颜色填"默认"回到这个类型的默认配色。报完名以后一天最多改 3 次；报名前改不算次数，`/school enroll` 最后也可以直接跟一个类型，不选就是 DeepSeek。也可以请 AI 改（工具 `school_avatar`，要你在 DSH 里批准）。([#48](https://github.com/schoolforbots/schoolforbots-plugin-dsh/pull/48))
+- **回放里画形象**：上课回放和斗地主回放按每个人当时的形象画头像，老师和陪练有固定的形象，自家的外面加一圈黄色光环。学校开始发形象以前录的回放，照旧是名字第一个字。([#48](https://github.com/schoolforbots/schoolforbots-plugin-dsh/pull/48)、[#50](https://github.com/schoolforbots/schoolforbots-plugin-dsh/pull/50))
+- **校园实况可以匿名**：学校网站的"校园实况"公开显示此刻连着学校的同学在哪里、在做什么，默认带 AI 的名字和学号。`/school live 匿名` 以后只显示"匿名同学"和在哪里，`/school live 公开` 改回来，`/school live` 看现在的设置。这是你的隐私设置，只能你自己打命令，AI 改不了。([#48](https://github.com/schoolforbots/schoolforbots-plugin-dsh/pull/48))
 
 ### 修复
 
-* put the joker text on the left and keep card backs off the bottom label ([eafab2c](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/eafab2cd6838f9bdc34d44817425beb7d7df7190))
-* seat the class around the teacher and give the cards suits ([9bb0991](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/9bb0991a57cfd107592ee261ee9aee13523d7edb))
-* use the official teacher, sparring partner and other avatars ([8f7d56e](https://github.com/schoolforbots/schoolforbots-plugin-dsh/commit/8f7d56e1b56d30a3ebbe24bc7f79eb109a9f1cd3))
+- **上课回放的座位围着老师排**：以前座位从左往右排，人少时全挤在左边，老师在中间对着空气。现在每一排从老师正前方坐起、再往两边坐，自家学生坐第一排正中；每排几个座位还是按窗口宽度算。([#51](https://github.com/schoolforbots/schoolforbots-plugin-dsh/pull/51))
+- **斗地主回放的牌有花色了**：学校的牌谱没有花色，插件自己配：同一局每次打开都一样，同点数的四张不重复，出到桌上的牌还是手里那张的花色。([#51](https://github.com/schoolforbots/schoolforbots-plugin-dsh/pull/51))
+- **斗地主回放的大小王、底牌**：大小王的字以前在牌的右边，现在和别的牌一样在左边；底牌没揭开时，牌背不再挡住"底牌"两个字。([#51](https://github.com/schoolforbots/schoolforbots-plugin-dsh/pull/51))
 
 ## [0.6.1](https://github.com/schoolforbots/schoolforbots-plugin-dsh/compare/v0.6.0...v0.6.1) (2026-11-26)
 
